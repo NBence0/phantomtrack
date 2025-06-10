@@ -584,3 +584,91 @@ td a:hover {
     color: var(--text-secondary);
     margin: 3px;
 }
+/* Egyszerű lista stílus */
+.simple-list {
+    list-style: none;
+    padding-left: 0;
+}
+.simple-list li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--glass-border);
+    font-size: 0.95em;
+}
+.simple-list li:last-child {
+    border-bottom: none;
+}
+.simple-list li strong {
+    color: var(--accent-primary);
+}
+.simple-list li .text-muted {
+    color: var(--text-secondary);
+    font-size: 0.85em;
+    margin-left: 5px;
+}
+
+.simple-list-condensed li {
+    padding: 6px 0;
+    font-size: 0.9em;
+}
+.simple-list-condensed li strong {
+    display: block; /* Hogy a small alá kerüljön */
+}
+.simple-list-condensed li .text-muted {
+    font-size: 0.9em;
+}
+
+.text-success { color: var(--color-success) !important; }
+.text-danger { color: var(--color-error) !important; }
+/* token_details.php specifikus CSS, vagy a style.css-be */
+.token-details-main-grid {
+    display: grid;
+    grid-template-columns: 320px 1fr; /* Info sáv és stat kártyák */
+    gap: 25px;
+    margin-bottom: 25px;
+}
+.token-info-and-actions {
+    padding: var(--card-padding);
+}
+.token-stats-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+    align-content: start; /* Kártyák felülre igazítása */
+}
+.token-stats-cards-grid .stat-card {
+    padding: 15px; /* Kisebb padding a kártyáknak */
+}
+.token-stats-cards-grid .stat-card h3 {
+    font-size: 0.95em;
+}
+.token-stats-cards-grid .stat-card .stat-value {
+    font-size: 1.8em;
+}
+.chart-container-small { /* Kisebb fánkdiagramokhoz */
+    height: 250px; 
+    padding: 10px;
+    display: flex; 
+    justify-content: center; 
+    align-items: center;
+}
+.chart-container-small canvas {
+    max-width: 220px;
+    max-height: 220px;
+}
+.subsection-title { /* Kisebb címek a fánkdiagramok felett */
+    font-size: 1.1em;
+    color: var(--accent-secondary);
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--glass-border-stronger, var(--glass-border)); /* Erősebb, ha van */
+    font-weight: 500;
+}
+.subsection-title i {
+    margin-right: 8px;
+}
+
+@media (max-width: 992px) {
+    .token-details-main-grid {
+        grid-template-columns: 1fr; /* Egymás alá kerül az info és a stat kártyák */
+    }
+}
