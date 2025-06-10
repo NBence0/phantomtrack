@@ -8,63 +8,73 @@ $currentUserId = getCurrentUserId();
 
 $filterCategoryId = isset($_GET['category_id']) ? (int)$_GET['category_id'] : null;
 
-// Kategóriák lekérése a szűrőhöz
+// Kategóriák lekérése a szűrőhöz (ez a rész már megvan a fájlodban)
 $categoriesStmt = $db->prepare("SELECT id, name FROM token_categories WHERE user_id = :user_id ORDER BY name ASC");
 $categoriesStmt->execute([':user_id' => $currentUserId]);
 $availableCategories = $categoriesStmt->fetchAll();
 
-// admin/tokens.php (modál előtt) és admin/edit_token.php (fájl elején)
-$categoriesStmt = $db->prepare("SELECT id, name FROM token_categories WHERE user_id = :user_id ORDER BY name ASC");
-$categoriesStmt->execute([':user_id' => $currentUserId]);
-$categoriesForSelect = $categoriesStmt->fetchAll();
+// Az SQL alapja a WHERE feltételekkel
+$sqlQueryBase = "SELECT t.id, t.token_value, t.name, t.description, t.category_id, tc.name as category_name, t.is_active, t.created_at
+                 FROM tokens t
+                 LEFT JOIN token_categories tc ON t.category_id = tc.id AND tc.user_id = t.user_id
+                 WHERE t.user_id = :user_id";
 
-
-// Tokenek listázása kategória szűréssel
-$sqlBase = "SELECT t.id, t.token_value, t.name, t.description, t.category_id, tc.name as category_name, t.is_active, t.created_at 
-            FROM tokens t
-            LEFT JOIN token_categories tc ON t.category_id = tc.id AND tc.user_id = t.user_id
-            WHERE t.user_id = :user_id";
-$params = [':user_id' => $currentUserId];
+// Szűrési feltételek hozzáadása az SQL-hez és a paraméterekhez
+$queryParams = [':user_id' => $currentUserId];
 
 if ($filterCategoryId) {
-    $sqlBase .= " AND t.category_id = :category_id";
-    $params[':category_id'] = $filterCategoryId;
+    $sqlQueryBase .= " AND t.category_id = :category_id";
+    $queryParams[':category_id'] = $filterCategoryId;
 }
 
-// Összes token számának lekérdezése a lapozáshoz (szűréssel)
-$countSql = "SELECT COUNT(t.id) FROM tokens t WHERE t.user_id = :user_id";
+// Összes token számának lekérdezése a lapozáshoz (a szűréssel együtt)
+$countSql = "SELECT COUNT(t.id) FROM tokens t WHERE t.user_id = :user_id_count";
+$paramsForCount = [':user_id_count' => $currentUserId];
 if ($filterCategoryId) {
-    $countSql .= " AND t.category_id = :category_id_count"; // Másik paraméternév az ütközés elkerülése végett
-    $paramsForCount = [':user_id' => $currentUserId, ':category_id_count' => $filterCategoryId];
-} else {
-    $paramsForCount = [':user_id' => $currentUserId];
+    $countSql .= " AND t.category_id = :category_id_count";
+    $paramsForCount[':category_id_count'] = $filterCategoryId;
 }
 $totalTokensStmt = $db->prepare($countSql);
 $totalTokensStmt->execute($paramsForCount);
 $totalTokens = $totalTokensStmt->fetchColumn();
-$itemsPerPage = (int)getAppSetting('items_per_page', DEFAULT_ITEMS_PER_PAGE);
-$totalPages = ceil($totalTokens / $itemsPerPage);
-if ($totalPages == 0) $totalPages = 1; // Hogy ne legyen 0, ha nincs token
 
-// Tokenek listázása lapozással
-$stmt = $db->prepare("SELECT id, token_value, name, description, is_active, created_at 
-                      FROM tokens 
-                      WHERE user_id = :user_id 
-                      ORDER BY created_at DESC 
-                      LIMIT :limit OFFSET :offset");
-$stmt->bindParam(':user_id', $currentUserId, PDO::PARAM_INT);
+// Lapozási változók kiszámítása
+$itemsPerPage = (int)getAppSetting('items_per_page', DEFAULT_ITEMS_PER_PAGE);
+if ($itemsPerPage <= 0) { // Biztonsági ellenőrzés, hogy ne legyen 0 vagy negatív
+    $itemsPerPage = DEFAULT_ITEMS_PER_PAGE;
+}
+
+$currentPage = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+// $totalPages számítása, biztosítva, hogy legalább 1 legyen
+$totalPages = $totalTokens > 0 ? ceil($totalTokens / $itemsPerPage) : 1;
+
+if ($currentPage < 1) {
+    $currentPage = 1;
+}
+if ($currentPage > $totalPages) {
+    $currentPage = $totalPages;
+}
+$offset = ($currentPage - 1) * $itemsPerPage;
+
+// Teljes SQL lekérdezés összeállítása a rendezéssel és lapozással
+$sqlQuery = $sqlQueryBase . " ORDER BY t.created_at DESC LIMIT :limit OFFSET :offset";
+
+// Statement előkészítése
+$stmt = $db->prepare($sqlQuery);
+
+// Paraméterek bindolása
+// A $queryParams tömbből származó paraméterek (user_id, esetleg category_id)
+foreach ($queryParams as $paramName => $paramValue) {
+    // Itt feltételezzük, hogy ezek int típusúak, ha más, módosítsd a PDO::PARAM_ típust
+    $stmt->bindValue($paramName, $paramValue, PDO::PARAM_INT);
+}
+
+// LIMIT és OFFSET paraméterek explicit bindolása INT típussal
 $stmt->bindParam(':limit', $itemsPerPage, PDO::PARAM_INT);
 $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+
+// Végrehajtás (ez volt az eredeti hibás sor környéke)
 $stmt->execute();
-$tokens = $stmt->fetchAll();
-
-$sqlBase .= " ORDER BY t.created_at DESC LIMIT :limit OFFSET :offset";
-$params[':limit'] = $itemsPerPage; // PDO::PARAM_INT implicit
-$params[':offset'] = $offset;       // PDO::PARAM_INT implicit
-
-$stmt = $db->prepare($sqlBase);
-// A bindParam itt már nem jó, mert a paraméterek száma változhat (category_id)
-$stmt->execute($params);
 $tokens = $stmt->fetchAll();
 
 
@@ -247,7 +257,7 @@ $tokens = $stmt->fetchAll();
                             <i class="fas fa-edit"></i>
                         </a>
                     </td>
-                    <td><?php echo $token['category_name'] ? escape($token['category_name']) : '<em style="color: var(--text-secondary);">Nincs</em>'; ?></td>
+                    <!--<td><?php// echo $token['category_name'] ? escape($token['category_name']) : '<em style="color: var(--text-secondary);">Nincs</em>'; ?></td>-->
                 </tr>
                 <?php endforeach; ?>
             <?php endif; ?>

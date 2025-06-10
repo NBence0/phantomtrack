@@ -104,14 +104,30 @@ function csrfInput() {
 }
 
 
-// Az egyszerű parseUserAgent funkciót lecseréljük/kiegészítjük.
-// Ez a függvény most a Matomo Device Detector-t fogja használni.
+use DeviceDetector\DeviceDetector; // Fontos a use statement!
+use DeviceDetector\Parser\Device\AbstractDeviceParser; // Szintén fontos!
+
+// ...
+
 function getDetailedUserAgentInfo($userAgentString) {
     static $dd = null; // Statikus, hogy ne kelljen minden híváskor újra létrehozni
     if ($dd === null) {
         AbstractDeviceParser::setVersionTruncation(AbstractDeviceParser::VERSION_TRUNCATION_NONE);
         $dd = new DeviceDetector($userAgentString);
-        $dd->setCache(new \Matomo\ менееCache\ArrayCache()); // Vagy egy perzisztens cache éles környezetben
+        // Éles környezetben érdemes lehet egy perzisztensebb cache-t használni, pl. Stash, Doctrine Cache, stb.
+        // A Matomo\Cache\EAcceleratorCache, Matomo\Cache\ApcCache stb. helyett
+        // a DeviceDetector saját cache interfészét vagy egy PSR-6/PSR-16 kompatibilis cache-t használj.
+        // Példa a Matomo\Cache\ArrayCache-re (nem perzisztens, csak az adott kérésre él):
+        // $dd->setCache(new \Matomo\Cache\ArrayCache());
+        // Újabb DeviceDetector verziókhoz:
+        // $cache = new \Symfony\Component\Cache\Adapter\ArrayAdapter();
+        // $dd->setCache($cache);
+        // Ha nincs Symfony Cache, egyszerűen hagyd ki a setCache részt, vagy használj egy egyszerűbb implementációt,
+        // de élesben a cache fontos a teljesítmény miatt. Kezdetnek a Matomo\Cache\ArrayCache is jó lehet,
+        // ha a matomo/cache csomag is települ a device-detectorral (gyakran függőségként).
+        // A "Matomo\ менееCache\ArrayCache()" furcsán néz ki, valószínűleg elírás és sima "Matomo\Cache\ArrayCache" lenne
+        // Ellenőrizd a DeviceDetector dokumentációját a cache beállítására.
+        // Ha a Matomo Cache nincs, és nem akarsz Symfony Cache-t, kezdetben hagyd ki a setCache hívást.
     } else {
         $dd->setUserAgent($userAgentString); // Újrahasznosítjuk az objektumot
     }
@@ -120,7 +136,12 @@ function getDetailedUserAgentInfo($userAgentString) {
 
     $clientInfo = $dd->getClient(); // Böngésző, feed reader, stb.
     $osInfo = $dd->getOs();
-    $deviceInfo = $dd->getDeviceName(); // Eszköz típusa (desktop, smartphone, tablet, console, etc.)
+    // A DeviceDetector újabb verziói a getDeviceName() helyett getDevice() és abból a type-ot adják
+    // vagy specifikusabb metódusokat (isSmartphone(), isTablet() etc.)
+    $deviceType = $dd->getDeviceName(); // Eszköz típusa (desktop, smartphone, tablet, console, etc.)
+    // Vagy $deviceType = $dd->getDevice(); // Ez egy számot adhat vissza, amit konstanssal kell összevetni
+    // Pl. if ($dd->isSmartphone()) $deviceType = 'smartphone';
+
     $brandInfo = $dd->getBrandName();
     $modelInfo = $dd->getModel();
 
@@ -131,7 +152,7 @@ function getDetailedUserAgentInfo($userAgentString) {
         'os_name' => $osInfo['name'] ?? 'N/A',
         'os_version' => $osInfo['version'] ?? 'N/A',
         'os_platform' => $osInfo['platform'] ?? 'N/A',
-        'device_type' => $deviceInfo ?? 'N/A', // Ez a DeviceDetector-ban a 'desktop', 'smartphone', stb.
+        'device_type' => $deviceType ?? 'N/A',
         'device_brand' => $brandInfo ?? 'N/A',
         'device_model' => $modelInfo ?? 'N/A',
         'is_bot' => $dd->isBot(),
@@ -176,12 +197,16 @@ function formatUserAgentDetailed($logRow) {
 }
 
 
+use GeoIp2\Database\Reader; // Fontos a use statement!
+use GeoIp2\Exception\AddressNotFoundException; // Szintén fontos!
+
+// ...
+
 function getGeolocationFromIp($ipAddress) {
-    // Beállítások: GeoLite2 adatbázis elérési útja és geolokáció engedélyezése
-    // Ezeket később az app_settings-ből kellene olvasni
-    // functions.php - getGeolocationFromIp elején
     $enableGeolocation = (bool)getAppSetting('ip_geolocation_enabled', '0');
-    $geoLiteDbPath = __DIR__ . '/../data/GeoLite2-City.mmdb'; // Módosítsd az elérési utat!
+    // A GeoLite2-City.mmdb fájlt a projekt `data` mappájába kell helyezni.
+    // Ezt le kell tölteni a MaxMind weboldaláról (regisztráció után ingyenesen elérhető).
+    $geoLiteDbPath = __DIR__ . '/../data/GeoLite2-City.mmdb';
 
     $defaultGeoData = [
         'country_code' => null,
@@ -191,48 +216,41 @@ function getGeolocationFromIp($ipAddress) {
 
     if (!$enableGeolocation || !file_exists($geoLiteDbPath) || !is_readable($geoLiteDbPath)) {
         if ($enableGeolocation && (!file_exists($geoLiteDbPath) || !is_readable($geoLiteDbPath))) {
-            error_log("GeoLite2 database not found or not readable at: " . $geoLiteDbPath);
+            error_log("GeoLite2 database not found or not readable at: " . $geoLiteDbPath . " - Geolocation will be skipped.");
         }
         return $defaultGeoData;
     }
 
-    // Validáljuk az IP címet, mielőtt átadjuk a Reader-nek
     if (!filter_var($ipAddress, FILTER_VALIDATE_IP)) {
         return $defaultGeoData;
     }
-    // A ::1 (IPv6 localhost) és 127.0.0.1 (IPv4 localhost) nem geolokálható
     if ($ipAddress === '::1' || $ipAddress === '127.0.0.1') {
         return $defaultGeoData;
     }
-
 
     try {
         static $reader = null;
         if ($reader === null) {
             $reader = new Reader($geoLiteDbPath);
         }
-        
-        $record = $reader->city($ipAddress); // Vagy $reader->country($ipAddress) ha csak ország kell
+
+        $record = $reader->city($ipAddress);
 
         return [
             'country_code' => $record->country->isoCode ?? null,
             'city_name' => $record->city->name ?? null,
-            // Az ISP információt a GeoLite2 adatbázisok általában nem tartalmazzák olyan részletesen,
-            // mint a dedikált ISP adatbázisok vagy egyes API-k.
-            // A $record->traits->isp és $record->traits->organization adhat némi támpontot.
             'isp' => $record->traits->isp ?? ($record->traits->organization ?? null),
         ];
 
-    } catch (\GeoIp2\Exception\AddressNotFoundException $e) {
-        // IP nem található az adatbázisban
+    } catch (AddressNotFoundException $e) {
         error_log("IP address not found in GeoLite2 DB: " . $ipAddress . " - " . $e->getMessage());
         return $defaultGeoData;
-    } catch (\Exception $e) {
-        // Egyéb hiba
-        error_log("GeoIP2 error: " . $e->getMessage());
+    } catch (\Exception $e) { // Általános Exception minden egyéb GeoIp2 hibára
+        error_log("GeoIP2 error: " . $e->getMessage() . " for IP: " . $ipAddress);
         return $defaultGeoData;
     }
 }
+
 function getAppSetting($key, $default = null) {
     $db = getDB();
     $stmt = $db->prepare("SELECT setting_value FROM app_settings WHERE setting_key = :key");

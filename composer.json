@@ -1,0 +1,25 @@
+
+{
+    "_comment": "Hely: htdocs/log/v3/phantomtrack/composer.json",
+    "name": "nbence/phantomtrack",
+    "description": "Advanced Pixel Tracking System",
+    "type": "project",
+    "require": {
+        "php": ">=7.4",
+        "matomo/device-detector": "^5.0",
+        "geoip2/geoip2": "~2.0"
+    },
+    "authors": [
+        {
+            "name": "Nagy Bence",
+            "email": "nbence009@gmail.com"
+        }
+    ],
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

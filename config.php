@@ -1,5 +1,5 @@
 <?php
-//require_once __DIR__ . '/vendor/autoload.php'; // Composer autoloader
+require_once __DIR__ . '/vendor/autoload.php'; // Composer autoloader
 // Adatbázis beállítások
 define('DB_HOST', '127.0.0.1');
 define('DB_NAME', 'phantomtrack_db');
