@@ -96,40 +96,45 @@ function copyToClipboard(inputElement) {
         alert('Hiba a másolás során.');
     }
 }
-
+        const dateRangeForm = document.getElementById('dateRangeFormTokenDetails'); // Ez a form most GET-tel újratölti az oldalt
+        const startDateInput = document.getElementById('td_start_date'); // A PHP által beállított értékeket olvassuk ki
+        const endDateInput = document.getElementById('td_end_date');   // A PHP által beállított értékeket olvassuk ki
 
 
 document.addEventListener('DOMContentLoaded', function() {
 
-    const dateRangeForm = document.getElementById('dateRangeFormTokenDetails'); // Ez a form most GET-tel újratölti az oldalt
-    const startDateInput = document.getElementById('td_start_date'); // A PHP által beállított értékeket olvassuk ki
-    const endDateInput = document.getElementById('td_end_date');   // A PHP által beállított értékeket olvassuk ki
-    const doughnutPieOptionsTd = {
-        responsive: true, maintainAspectRatio: false,
-        plugins: {
-            legend: { position: 'right', labels: { padding: 10, boxWidth: 10, font: {size: 10} } },
-            tooltip: {
-                callbacks: {
-                    label: function(context) {
-                        let label = context.label || '';
-                        if (label) { label += ': '; }
-                        if (context.parsed !== null) {
-                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                            const percentage = total > 0 ? (context.raw / total * 100).toFixed(1) + '%' : '0%';
-                            label += context.raw + ' (' + percentage + ')';
+    
+    function loadTokenSpecificCharts(startDate, endDate) {
+
+
+
+        const doughnutPieOptionsTd = {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right', labels: { padding: 10, boxWidth: 10, font: {size: 10} } },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.label || '';
+                            if (label) { label += ': '; }
+                            if (context.parsed !== null) {
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = total > 0 ? (context.raw / total * 100).toFixed(1) + '%' : '0%';
+                                label += context.raw + ' (' + percentage + ')';
+                            }
+                            return label;
                         }
-                        return label;
                     }
                 }
             }
-        }
-    };
+        };
 
-    const doughnutColorsTd = [ ptColors.secondary, ptColors.green, ptColors.purple, ptColors.orange, ptColors.pink, ptColors.lightBlue, ptColors.teal, ptColors.yellow, ptColors.contrastHighlight, ptColors.grey ];
-    const dateParams = (startDate && endDate) ? `&start_date=${startDate}&end_date=${endDate}` : '';
-    const selectedPeriodText = (startDate && endDate) ? `${startDate} / ${endDate}` : 'Alapértelmezett időszak';
-    
-    function loadTokenSpecificCharts(startDate, endDate) {
+        const doughnutColorsTd = [ ptColors.secondary, ptColors.green, ptColors.purple, ptColors.orange, ptColors.pink, ptColors.lightBlue, ptColors.teal, ptColors.yellow, ptColors.contrastHighlight, ptColors.grey ];
+        const dateParams = (startDate && endDate) ? `&start_date=${startDate}&end_date=${endDate}` : '';
+        const selectedPeriodText = (startDate && endDate) ? `${startDate} / ${endDate}` : 'Alapértelmezett időszak';
+        
+
+
         // Stat kártyák
         fetchChartData(`${ajaxBaseUrl}?action=unique_vs_total_opens_token&token_id=${currentTokenId}${dateParams}`).then(apiData => {
             if (apiData && typeof apiData.total_opens !== 'undefined') {
