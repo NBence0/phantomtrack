@@ -1089,6 +1089,520 @@ switch ($action) {
             'data' => [$unique_opens, max(0, $total_opens - $unique_opens)] // Grafiknhoz
         ];
         break;
+    case 'hourly_activity_last_24h_token': // ÚJ
+        $tokenId = (int)($_GET['token_id'] ?? 0);
+        // Itt nem használunk dátumszűrőt, mindig az utolsó 24 órát nézzük a legfrissebb log alapján, VAGY az aktuális időtől visszamenőleg.
+        // Maradjunk az aktuális időtől visszamenőleg 24 óránál.
+        
+        $verification = verifyTokenAccess($db, $tokenId, $currentUserId);
+        if (!$verification['valid']) { $output = $verification; break; }
+
+        $sql = "SELECT HOUR(al.timestamp) as open_hour, COUNT(al.id) as open_count
+                FROM activity_logs al
+                WHERE al.token_id = :token_id 
+                  AND al.timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                GROUP BY open_hour
+                ORDER BY open_hour ASC";
+        $params = [':token_id' => $tokenId];
+        
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $hourlyData = array_fill(0, 24, 0);
+        foreach ($data as $row) { $hourlyData[(int)$row['open_hour']] = (int)$row['open_count']; }
+        
+        $labels = [];
+        $now = new DateTime();
+        for ($i = 23; $i >= 0; $i--) { // Visszafelé, hogy a legfrissebb legyen a jobb szélen
+            $hour_dt = clone $now;
+            $hour_dt->modify("-{$i} hours");
+            $labels[] = $hour_dt->format('H:00'); // Csak az órát mutatjuk
+        }
+        // Az adatoknak is ebben a sorrendben kell lenniük, ahogy a lekérdezés adja (0-23 óra)
+        // A `hourlyData` már 0-23 indexelt. A címkék is 0-23-nak megfelelő órákat mutatnak, csak fordított sorrendben generáltuk a megjelenítéshez.
+        // A Chart.js-nek a labels és data tömböknek meg kell egyezniük a sorrendben.
+        // Egyszerűbb, ha a labels is 00:00, 01:00 ... 23:00 és a data is ehhez igazodik.
+        $final_labels = array_map(function($h){ return str_pad($h, 2, '0', STR_PAD_LEFT) . ':00'; }, range(0,23));
+        $final_counts = array_values($hourlyData);
+
+        $output = ['labels' => $final_labels, 'data' => $final_counts];
+        break;
+
+
+    case 'top_referrers_token':
+        $tokenId = (int)($_GET['token_id'] ?? 0);
+        $startDate = $_GET['start_date'] ?? null;
+        $endDate = $_GET['end_date'] ?? null;
+        $limit = (int)($_GET['limit'] ?? 7);
+        if ($limit <= 0) $limit = 7; // Biztosítjuk, hogy pozitív legyen
+        if ($limit > 50) $limit = 50; // Ésszerű felső korlát
+
+        $verification = verifyTokenAccess($db, $tokenId, $currentUserId);
+        if (!$verification['valid']) {
+            $output = $verification;
+            break;
+        }
+
+        // Robusztusabb domain kinyerés kísérlete SQL-ben:
+        // 1. Eltávolítjuk a protokollt.
+        // 2. Az első '/' jelig vesszük a részt.
+        // 3. Eltávolítjuk a 'www.'-t ha azzal kezdődik.
+        // 4. Kisbetűssé alakítjuk.
+        // Fontos: Ez az SQL alapú kinyerés nem lesz tökéletes minden URL-re.
+        // Egy PHP oldali feldolgozás (pl. parse_url) pontosabb lenne, de az SQL-ben maradunk most.
+
+        $sql = "
+            SELECT 
+                derived_domain AS referrer_domain,
+                COUNT(*) AS open_count
+            FROM (
+                SELECT
+                    LOWER(
+                        TRIM(LEADING 'www.' FROM 
+                            SUBSTRING_INDEX(
+                                REPLACE(
+                                    REPLACE(al.referrer, 'https://', ''), 
+                                    'http://', ''
+                                ), 
+                                '/', 1
+                            )
+                        )
+                    ) AS derived_domain,
+                    al.id -- Szükséges a COUNT(*)-hoz az alquery-ben, ha a JOIN bent van
+                FROM activity_logs al
+                WHERE al.token_id = :token_id
+                  AND al.referrer IS NOT NULL
+                  AND al.referrer != ''
+                  AND al.referrer != 'N/A'
+                  AND al.referrer NOT LIKE 'http://localhost%' 
+                  AND al.referrer NOT LIKE 'https://localhost%'
+        ";
+
+        $params = [':token_id' => $tokenId];
+        
+        if ($startDate && $endDate && preg_match("/^\d{4}-\d{2}-\d{2}$/", $startDate) && preg_match("/^\d{4}-\d{2}-\d{2}$/", $endDate)) {
+            $sql .= " AND DATE(al.timestamp) BETWEEN :start_date AND :end_date";
+            $params[':start_date'] = $startDate;
+            $params[':end_date'] = $endDate;
+        }
+
+        $sql .= "
+            ) AS subquery
+            WHERE derived_domain IS NOT NULL AND derived_domain != '' AND LENGTH(derived_domain) > 0
+            GROUP BY derived_domain
+            ORDER BY open_count DESC
+            LIMIT " . $limit . " 
+        "; // LIMIT közvetlenül beillesztve
+
+        try {
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $labels = [];
+            $counts = [];
+            if ($data) {
+                foreach ($data as $row) {
+                    $labels[] = $row['referrer_domain']; // A derived_domain már aliasolva van
+                    $counts[] = (int)$row['open_count'];
+                }
+            }
+            $output = ['labels' => $labels, 'data' => $counts];
+
+        } catch (PDOException $e) {
+            error_log("SQL Error in top_referrers_token: " . $e->getMessage() . " --- SQL: " . $sql . " --- PARAMS: " . json_encode($params));
+            $output = ['error' => 'Adatbázis hiba történt a top referrer adatok lekérdezésekor.', 'details' => $e->getMessage()];
+        }
+        break;
+
+    // ... (a `top_ips_token` case, ahogy az előző üzenetben javítottuk) ...
+    case 'top_ips_token':
+        $tokenId = (int)($_GET['token_id'] ?? 0);
+        $startDate = $_GET['start_date'] ?? null;
+        $endDate = $_GET['end_date'] ?? null;
+        $limit = (int)($_GET['limit'] ?? 10);
+        if ($limit <= 0) $limit = 10;
+        if ($limit > 100) $limit = 100; // Max limit
+
+        $verification = verifyTokenAccess($db, $tokenId, $currentUserId);
+        if (!$verification['valid']) { $output = $verification; break; }
+
+        $sql = "SELECT ip_address, COUNT(id) as open_count, MAX(timestamp) as last_seen
+                FROM activity_logs
+                WHERE token_id = :token_id";
+        $params = [':token_id' => $tokenId];
+
+        if ($startDate && $endDate && preg_match("/^\d{4}-\d{2}-\d{2}$/", $startDate) && preg_match("/^\d{4}-\d{2}-\d{2}$/", $endDate)) {
+            $sql .= " AND DATE(timestamp) BETWEEN :start_date AND :end_date";
+            $params[':start_date'] = $startDate;
+            $params[':end_date'] = $endDate;
+        }
+        $sql .= " GROUP BY ip_address ORDER BY open_count DESC, last_seen DESC LIMIT " . $limit;
+        
+        try {
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $output = $data;
+        } catch (PDOException $e) {
+            error_log("SQL Error in top_ips_token: " . $e->getMessage() . " --- SQL: " . $sql . " --- PARAMS: " . json_encode($params));
+            $output = ['error' => 'Adatbázis hiba történt a top IP címek lekérdezésekor.', 'details' => $e->getMessage()];
+        }
+        break;
+
+    case 'opens_by_day_of_week_token': // ÚJ
+        $tokenId = (int)($_GET['token_id'] ?? 0);
+        $startDate = $_GET['start_date'] ?? null;
+        $endDate = $_GET['end_date'] ?? null;
+
+        $verification = verifyTokenAccess($db, $tokenId, $currentUserId);
+        if (!$verification['valid']) { $output = $verification; break; }
+
+        // DAYOFWEEK: 1 = Vasárnap, 2 = Hétfő, ..., 7 = Szombat
+        // Átalakítjuk, hogy Hétfő legyen az első (0)
+        $sql = "SELECT DAYOFWEEK(timestamp) as day_num, COUNT(id) as open_count 
+                FROM activity_logs
+                WHERE token_id = :token_id";
+        $params = [':token_id' => $tokenId];
+        
+        if ($startDate && $endDate && preg_match("/^\d{4}-\d{2}-\d{2}$/", $startDate) && preg_match("/^\d{4}-\d{2}-\d{2}$/", $endDate)) {
+            $sql .= " AND DATE(timestamp) BETWEEN :start_date AND :end_date";
+            $params[':start_date'] = $startDate;
+            $params[':end_date'] = $endDate;
+        }
+        $sql .= " GROUP BY day_num ORDER BY day_num ASC";
+        
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $daysOfWeekLabels = ['Hétfő', 'Kedd', 'Szerda', 'Csütörtök', 'Péntek', 'Szombat', 'Vasárnap'];
+        $dayCounts = array_fill(0, 7, 0); // 0:H, 1:K, ..., 6:V
+
+        foreach ($data as $row) {
+            $dayNumSql = (int)$row['day_num']; // 1 (Vas) - 7 (Szo)
+            $adjustedDayNum = ($dayNumSql + 5) % 7; // Hétfő (0) - Vasárnap (6)
+            // Alternatív (SQL oldalon): (DAYOFWEEK(timestamp) + 5) % 7 AS dow_adjusted (0=Hétfő)
+            // Vagy PHP-ban:
+            // $phpDate = new DateTime($row['some_date_if_not_aggregated_by_dayofweek']);
+            // $adjustedDayNum = $phpDate->format('N') - 1; // N: 1 (Mon) - 7 (Sun)
+
+            $dayCounts[$adjustedDayNum] += (int)$row['open_count'];
+        }
+        $output = ['labels' => $daysOfWeekLabels, 'data' => $dayCounts];
+        break;
+
+    case 'weekly_opens_token':
+        $tokenId = (int)($_GET['token_id'] ?? 0);
+        $startDate = $_GET['start_date'] ?? null;
+        $endDate = $_GET['end_date'] ?? null;
+
+        $verification = verifyTokenAccess($db, $tokenId, $currentUserId);
+        if (!$verification['valid']) { $output = $verification; break; }
+
+        $sql = "SELECT YEARWEEK(al.timestamp, 1) as open_yearweek, COUNT(al.id) as open_count
+                FROM activity_logs al
+                WHERE al.token_id = :token_id";
+        $params = [':token_id' => $tokenId];
+        $base_period_start_dt_for_labels = null; // A címkék generálásához
+
+        if ($startDate && $endDate && preg_match("/^\d{4}-\d{2}-\d{2}$/", $startDate) && preg_match("/^\d{4}-\d{2}-\d{2}$/", $endDate)) {
+            $sql .= " AND DATE(al.timestamp) BETWEEN :start_date AND :end_date";
+            $params[':start_date'] = $startDate;
+            $params[':end_date'] = $endDate;
+            $base_period_start_dt_for_labels = new DateTime($startDate);
+            $period_end_dt_for_labels = new DateTime($endDate);
+        } else {
+            // Alapértelmezett: elmúlt 12 hét adatai, de a címkékhez az elmúlt 12 hetet vesszük
+            $sql .= " AND al.timestamp >= DATE_SUB(CURDATE(), INTERVAL 84 DAY)"; // 12 hét * 7 nap
+            $base_period_start_dt_for_labels = new DateTime(date('Y-m-d', strtotime("-83 days"))); // kb. 12 hét eleje
+            $period_end_dt_for_labels = new DateTime(date('Y-m-d'));
+        }
+        $sql .= " GROUP BY open_yearweek ORDER BY open_yearweek ASC";
+        
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        $labels = []; $counts = []; $dataMap = [];
+        foreach($data as $row) { $dataMap[$row['open_yearweek']] = (int)$row['open_count']; }
+
+        // Címkék generálása hetekre a megadott vagy alapértelmezett periódusra
+        $current_week_iter_dt = clone $base_period_start_dt_for_labels;
+        // Igazítás a hétfőhöz
+        if ($current_week_iter_dt->format('N') != 1) {
+            $current_week_iter_dt->modify('last monday');
+        }
+
+        while($current_week_iter_dt <= $period_end_dt_for_labels) {
+            $year_week_key = $current_week_iter_dt->format("oW");
+            $labels[] = $current_week_iter_dt->format('Y-m-d'); // Hétfői dátum
+            $counts[] = $dataMap[$year_week_key] ?? 0;
+            $current_week_iter_dt->modify('+1 week');
+        }
+        $output = ['labels' => $labels, 'data' => $counts];
+        break;
+
+    case 'monthly_opens_token':
+        // Hasonló a weekly_opens_token-hez, csak hónapokra
+        $tokenId = (int)($_GET['token_id'] ?? 0);
+        $startDate = $_GET['start_date'] ?? null;
+        $endDate = $_GET['end_date'] ?? null;
+
+        $verification = verifyTokenAccess($db, $tokenId, $currentUserId);
+        if (!$verification['valid']) { $output = $verification; break; }
+        
+        $sql = "SELECT DATE_FORMAT(al.timestamp, '%Y-%m') as open_month, COUNT(al.id) as open_count
+                FROM activity_logs al
+                WHERE al.token_id = :token_id";
+        $params = [':token_id' => $tokenId];
+        $base_period_start_dt_for_labels = null;
+
+        if ($startDate && $endDate && preg_match("/^\d{4}-\d{2}-\d{2}$/", $startDate) && preg_match("/^\d{4}-\d{2}-\d{2}$/", $endDate)) {
+            $sql .= " AND DATE(al.timestamp) BETWEEN :start_date AND :end_date";
+            $params[':start_date'] = $startDate;
+            $params[':end_date'] = $endDate;
+            $base_period_start_dt_for_labels = new DateTime(date('Y-m-01', strtotime($startDate)));
+            $period_end_dt_for_labels = new DateTime(date('Y-m-t', strtotime($endDate)));
+        } else {
+            $sql .= " AND al.timestamp >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)";
+            $base_period_start_dt_for_labels = new DateTime(date('Y-m-01', strtotime("-11 months"))); // Elmúlt 12 hónap
+            $period_end_dt_for_labels = new DateTime(date('Y-m-t'));
+        }
+        $sql .= " GROUP BY open_month ORDER BY open_month ASC";
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $labels = []; $counts = []; $dataMap = [];
+        foreach($data as $row) { $dataMap[$row['open_month']] = (int)$row['open_count']; }
+
+        $current_month_iter_dt = clone $base_period_start_dt_for_labels;
+        while($current_month_iter_dt <= $period_end_dt_for_labels) {
+            $month_key = $current_month_iter_dt->format("Y-m");
+            $labels[] = $month_key;
+            $counts[] = $dataMap[$month_key] ?? 0;
+            $current_month_iter_dt->modify('+1 month');
+        }
+        $output = ['labels' => $labels, 'data' => $counts];
+        break;
+
+    case 'browser_engine_distribution_token': // ÚJ
+        $tokenId = (int)($_GET['token_id'] ?? 0);
+        // Dátumszűrőt itt is hozzáadhatnánk, mint a többi eloszlásnál
+        $startDate = $_GET['start_date'] ?? null;
+        $endDate = $_GET['end_date'] ?? null;
+
+        $verification = verifyTokenAccess($db, $tokenId, $currentUserId);
+        if (!$verification['valid']) { $output = $verification; break; }
+
+        // A device-detector nem direkt adja vissza a renderelő motort a DB-ben tárolt oszlopokban.
+        // Ezt a nyers user_agent alapján kellene a PHP-ban kinyerni, ha a device-detector tudja.
+        // Mivel az `ajax_chart_data.php` nem fér hozzá a teljes `DeviceDetector` objektumhoz,
+        // ezt most szimuláljuk a böngészőnév alapján, ami nem tökéletes.
+        // Jobb megoldás lenne, ha a `pixel.php` a renderelő motort is elmentené egy külön oszlopba.
+        $sql = "SELECT browser_name, COUNT(id) as item_count 
+                FROM activity_logs 
+                WHERE token_id = :token_id AND browser_name IS NOT NULL AND browser_name != '' AND browser_name != 'N/A'";
+        $params = [':token_id' => $tokenId];
+        if ($startDate && $endDate) { /* ... dátumszűrés ... */ $sql .= " AND DATE(timestamp) BETWEEN :start_date AND :end_date"; $params[':start_date'] = $startDate; $params[':end_date'] = $endDate;}
+        $sql .= " GROUP BY browser_name ORDER BY item_count DESC";
+        
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $engineMap = [
+            'Blink' => 0, 'Gecko' => 0, 'WebKit' => 0, 'Trident/EdgeHTML' => 0, 'Egyéb Motor' => 0
+        ];
+        foreach($data as $row){
+            $bn = strtolower($row['browser_name']);
+            $count = (int)$row['item_count'];
+            if (strpos($bn, 'chrome') !== false || strpos($bn, 'opera') !== false || strpos($bn, 'vivaldi') !== false || strpos($bn, 'brave') !== false || (strpos($bn, 'edge') !== false && strpos($bn, 'chromium') === false && version_compare($row['browser_version'] ?? '0', '79', '>='))) { // Edge Chromium
+                $engineMap['Blink'] += $count;
+            } elseif (strpos($bn, 'firefox') !== false || strpos($bn, 'seamonkey') !== false) {
+                $engineMap['Gecko'] += $count;
+            } elseif (strpos($bn, 'safari') !== false && strpos($bn, 'chrome') === false) { // Safari, de nem Chrome (ami szintén WebKit-alapú)
+                $engineMap['WebKit'] += $count;
+            } elseif (strpos($bn, 'internet explorer') !== false || strpos($bn, 'msie') !== false || (strpos($bn, 'edge') !== false && version_compare($row['browser_version'] ?? '0', '18', '<='))) { // Régi Edge
+                $engineMap['Trident/EdgeHTML'] += $count;
+            } else {
+                $engineMap['Egyéb Motor'] += $count;
+            }
+        }
+        // Szűrjük ki a 0 értékeket
+        $filteredEngineMap = array_filter($engineMap, function($value) { return $value > 0; });
+        $output = ['labels' => array_keys($filteredEngineMap), 'data' => array_values($filteredEngineMap)];
+        break;
+
+    case 'mobile_brand_distribution_token': // ÚJ
+        $tokenId = (int)($_GET['token_id'] ?? 0);
+        $startDate = $_GET['start_date'] ?? null;
+        $endDate = $_GET['end_date'] ?? null;
+
+        $verification = verifyTokenAccess($db, $tokenId, $currentUserId);
+        if (!$verification['valid']) { $output = $verification; break; }
+
+        $sql = "SELECT 
+                    CASE 
+                        WHEN device_brand IS NULL OR device_brand = '' OR device_brand = 'N/A' THEN 'Ismeretlen Márka'
+                        ELSE device_brand
+                    END as item_name, 
+                    COUNT(id) as item_count
+                FROM activity_logs
+                WHERE token_id = :token_id 
+                  AND (device_type = 'Smartphone' OR device_type = 'Tablet' OR device_type LIKE '%Mobil%')
+                  AND device_brand IS NOT NULL AND device_brand != '' AND device_brand != 'N/A'";
+        $params = [':token_id' => $tokenId];
+        if ($startDate && $endDate) { /* ... dátumszűrés ... */ $sql .= " AND DATE(timestamp) BETWEEN :start_date AND :end_date"; $params[':start_date'] = $startDate; $params[':end_date'] = $endDate;}
+        $sql .= " GROUP BY item_name ORDER BY item_count DESC";
+        
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Ugyanaz az "Egyéb" logika, mint a többi fánkdiagramnál
+        $labels = []; $counts = []; $otherCount = 0; $maxItems = 6;
+        foreach ($data as $index => $row) {
+            if ($index < $maxItems) { $labels[] = $row['item_name']; $counts[] = (int)$row['item_count']; }
+            else { $otherCount += (int)$row['item_count']; }
+        }
+        if ($otherCount > 0) { $labels[] = 'Egyéb Márkák'; $counts[] = $otherCount; }
+        $output = ['labels' => $labels, 'data' => $counts];
+        break;
+
+    case 'referrer_type_distribution_token': // ÚJ (Kereső, Közösségi)
+        $tokenId = (int)($_GET['token_id'] ?? 0);
+        $startDate = $_GET['start_date'] ?? null;
+        $endDate = $_GET['end_date'] ?? null;
+
+        $verification = verifyTokenAccess($db, $tokenId, $currentUserId);
+        if (!$verification['valid']) { $output = $verification; break; }
+        
+        $search_engines = ['google.com', 'bing.com', 'duckduckgo.com', 'yahoo.com', 'baidu.com', 'yandex.ru'];
+        $social_media = ['facebook.com', 't.co', 'twitter.com', 'instagram.com', 'linkedin.com', 'pinterest.com', 'reddit.com'];
+
+        $sql = "SELECT referrer FROM activity_logs WHERE token_id = :token_id AND referrer IS NOT NULL AND referrer != '' AND referrer != 'N/A'";
+        $params = [':token_id' => $tokenId];
+        if ($startDate && $endDate) { /* ... dátumszűrés ... */ $sql .= " AND DATE(timestamp) BETWEEN :start_date AND :end_date"; $params[':start_date'] = $startDate; $params[':end_date'] = $endDate;}
+        
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $referrers_raw = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        $referrerTypes = ['Keresőmotor' => 0, 'Közösségi Média' => 0, 'Direkt/Ismeretlen' => 0, 'Egyéb Hivatkozó' => 0];
+        foreach($referrers_raw as $ref) {
+            if (empty($ref) || $ref == 'N/A' || strtolower($ref) == 'direct') {
+                $referrerTypes['Direkt/Ismeretlen']++;
+                continue;
+            }
+            $parsedUrl = parse_url($ref);
+            $host = $parsedUrl['host'] ?? null;
+            if (!$host) { $referrerTypes['Direkt/Ismeretlen']++; continue; }
+            
+            $host = str_replace('www.', '', strtolower($host));
+            $isSearch = false;
+            foreach($search_engines as $se) { if (strpos($host, $se) !== false) { $referrerTypes['Keresőmotor']++; $isSearch = true; break; } }
+            if ($isSearch) continue;
+
+            $isSocial = false;
+            foreach($social_media as $sm) { if (strpos($host, $sm) !== false) { $referrerTypes['Közösségi Média']++; $isSocial = true; break; } }
+            if ($isSocial) continue;
+
+            $referrerTypes['Egyéb Hivatkozó']++;
+        }
+        $filteredReferrerTypes = array_filter($referrerTypes, function($value) { return $value > 0; });
+        $output = ['labels' => array_keys($filteredReferrerTypes), 'data' => array_values($filteredReferrerTypes)];
+        break;
+
+    case 'opens_by_month_day_token': // ÚJ
+        $tokenId = (int)($_GET['token_id'] ?? 0);
+        $startDate = $_GET['start_date'] ?? null;
+        $endDate = $_GET['end_date'] ?? null;
+        
+        $verification = verifyTokenAccess($db, $tokenId, $currentUserId);
+        if (!$verification['valid']) { $output = $verification; break; }
+
+        $sql = "SELECT DAYOFMONTH(timestamp) as day_of_month, COUNT(id) as open_count 
+                FROM activity_logs
+                WHERE token_id = :token_id";
+        $params = [':token_id' => $tokenId];
+        if ($startDate && $endDate) { /* ... dátumszűrés ... */ $sql .= " AND DATE(timestamp) BETWEEN :start_date AND :end_date"; $params[':start_date'] = $startDate; $params[':end_date'] = $endDate;}
+        $sql .= " GROUP BY day_of_month ORDER BY day_of_month ASC";
+        
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $monthDayCounts = array_fill(1, 31, 0); // 1-31 napok
+        foreach ($data as $row) { $monthDayCounts[(int)$row['day_of_month']] = (int)$row['open_count']; }
+        
+        $output = ['labels' => array_keys($monthDayCounts), 'data' => array_values($monthDayCounts)];
+        break;
+    
+    // --- INFORMÁCIÓS ELEMEKHEZ (nem grafikon) ---
+    case 'token_extended_info': // ÚJ
+        $tokenId = (int)($_GET['token_id'] ?? 0);
+        $verification = verifyTokenAccess($db, $tokenId, $currentUserId);
+        if (!$verification['valid']) { $output = $verification; break; }
+
+        // Token létrehozása óta eltelt idő - ezt a PHP/JS oldalon számoljuk a `created_at` alapján
+        // Első megnyitás, Utolsó megnyitás, Legaktívabb nap, Legtöbb megnyitást hozó IP/Referrer
+        $firstOpenStmt = $db->prepare("SELECT MIN(timestamp) FROM activity_logs WHERE token_id = :token_id");
+        $firstOpenStmt->execute([':token_id' => $tokenId]);
+        $first_open_date = $firstOpenStmt->fetchColumn();
+
+        $lastOpenStmt = $db->prepare("SELECT MAX(timestamp) FROM activity_logs WHERE token_id = :token_id");
+        $lastOpenStmt->execute([':token_id' => $tokenId]);
+        $last_open_date = $lastOpenStmt->fetchColumn();
+        
+        // Legaktívabb nap (dátum és szám)
+        $mostActiveDayStmt = $db->prepare("SELECT DATE(timestamp) as active_date, COUNT(id) as count 
+                                           FROM activity_logs WHERE token_id = :token_id 
+                                           GROUP BY active_date ORDER BY count DESC LIMIT 1");
+        $mostActiveDayStmt->execute([':token_id' => $tokenId]);
+        $most_active_day_data = $mostActiveDayStmt->fetch(PDO::FETCH_ASSOC);
+
+        // Legtöbb megnyitást hozó IP
+        $topIpStmt = $db->prepare("SELECT ip_address, COUNT(id) as count FROM activity_logs 
+                                   WHERE token_id = :token_id AND ip_address IS NOT NULL AND ip_address != ''
+                                   GROUP BY ip_address ORDER BY count DESC LIMIT 1");
+        $topIpStmt->execute([':token_id' => $tokenId]);
+        $top_ip_data = $topIpStmt->fetch(PDO::FETCH_ASSOC);
+        
+        // Legtöbb megnyitást hozó Referrer Domain
+        $topRefStmt = $db->prepare("SELECT LOWER(TRIM(LEADING 'www.' FROM SUBSTRING_INDEX(REPLACE(REPLACE(referrer, 'https://', ''), 'http://', ''), '/', 1))) as domain, COUNT(id) as count 
+                                    FROM activity_logs 
+                                    WHERE token_id = :token_id AND referrer IS NOT NULL AND referrer != '' AND referrer != 'N/A'
+                                    GROUP BY domain HAVING domain IS NOT NULL AND domain != '' ORDER BY count DESC LIMIT 1");
+        $topRefStmt->execute([':token_id' => $tokenId]);
+        $top_ref_data = $topRefStmt->fetch(PDO::FETCH_ASSOC);
+
+        // Aktív napok száma a periódusban
+        $activeDaysInPeriodSql = "SELECT COUNT(DISTINCT DATE(timestamp)) FROM activity_logs WHERE token_id = :token_id";
+        $activeDaysParams = [':token_id' => $tokenId];
+        $startDateInfo = $_GET['start_date_info'] ?? null; // Külön paraméter az infóhoz
+        $endDateInfo = $_GET['end_date_info'] ?? null;
+         if ($startDateInfo && $endDateInfo && preg_match("/^\d{4}-\d{2}-\d{2}$/", $startDateInfo) && preg_match("/^\d{4}-\d{2}-\d{2}$/", $endDateInfo)) {
+            $activeDaysInPeriodSql .= " AND DATE(timestamp) BETWEEN :start_date AND :end_date";
+            $activeDaysParams[':start_date'] = $startDateInfo;
+            $activeDaysParams[':end_date'] = $endDateInfo;
+        }
+        $activeDaysStmt = $db->prepare($activeDaysInPeriodSql);
+        $activeDaysStmt->execute($activeDaysParams);
+        $active_days_in_period = $activeDaysStmt->fetchColumn();
+
+
+        $output = [
+            'first_open_date' => $first_open_date,
+            'last_open_date' => $last_open_date,
+            'most_active_day' => $most_active_day_data ? ($most_active_day_data['active_date'] . ' (' . $most_active_day_data['count'] . 'x)') : 'N/A',
+            'top_ip' => $top_ip_data ? ($top_ip_data['ip_address'] . ' (' . $top_ip_data['count'] . 'x)') : 'N/A',
+            'top_referrer_domain' => $top_ref_data ? ($top_ref_data['domain'] . ' (' . $top_ref_data['count'] . 'x)') : 'N/A',
+            'active_days_in_selected_period' => (int)$active_days_in_period,
+        ];
+        break;
 }
 
 echo json_encode($output);

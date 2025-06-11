@@ -672,3 +672,74 @@ td a:hover {
         grid-template-columns: 1fr; /* Egymás alá kerül az info és a stat kártyák */
     }
 }
+.token-details-main-grid { display: grid; grid-template-columns: 320px 1fr; gap: 25px; margin-bottom: 25px; }
+.token-info-and-actions { padding: var(--card-padding); }
+.token-stats-cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; align-content: start; }
+.token-stats-cards-grid .stat-card { padding: 15px; }
+.token-stats-cards-grid .stat-card h3 { font-size: 0.95em; margin-bottom: 8px; }
+.token-stats-cards-grid .stat-card .stat-value { font-size: 1.8em; }
+.token-stats-cards-grid .stat-card small { font-size: 0.8em; color: var(--text-secondary); display: block; margin-top: 4px;}
+
+.chart-container-small { height: 260px; padding: 10px; display: flex; justify-content: center; align-items: center; }
+.chart-container-small canvas { max-width: 230px; max-height: 230px; }
+.subsection-title { font-size: 1.1em; color: var(--accent-secondary); margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid var(--glass-border-stronger, var(--glass-border)); font-weight: 500; }
+.subsection-title i { margin-right: 8px; }
+.text-muted { color: var(--text-secondary); }
+.text-center { text-align: center; }
+
+@media (max-width: 992px) { .token-details-main-grid { grid-template-columns: 1fr; } }
+@media (max-width: 768px) { 
+    .token-stats-cards-grid { grid-template-columns: 1fr; }
+    .dashboard-grid { grid-template-columns: 1fr !important; } /* Force single column for all dashboard grids */
+}
+
+.form-inline label { margin-bottom: 5px; }
+.btn-block { width: 100%; }
+
+.simple-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.simple-table th, .simple-table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--glass-border);
+    font-size: 0.9em;
+}
+.simple-table thead th {
+    background-color: rgba(0,0,0,0.1);
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+.simple-table tbody tr:hover {
+    background-color: rgba(255,255,255,0.03);
+}
+.simple-table .text-center {
+    text-align: center;
+}
+.info-cards-extended-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+}
+.info-item-extended {
+    padding: 10px;
+    border-bottom: 1px solid var(--glass-border-stronger, var(--glass-border));
+}
+.info-item-extended:last-child {
+    border-bottom: none;
+}
+.info-item-extended h4 {
+    font-size: 0.95em;
+    color: var(--accent-secondary);
+    margin-bottom: 5px;
+    font-weight: 500;
+}
+.info-item-extended h4 i {
+    margin-right: 6px;
+}
+.info-item-extended p {
+    font-size: 0.9em;
+    color: var(--text-primary);
+    word-break: break-all; /* Hosszú IP-k, domainek tördelése */
+}
