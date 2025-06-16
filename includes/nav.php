@@ -1,4 +1,6 @@
 <?php
+// A require_once gondoskodik róla, hogy ne töltődjön be többször.
+require_once __DIR__ . '/auth.php';
 // Aktuális oldal meghatározása a kiemeléshez
 $current_page = basename($_SERVER['PHP_SELF']);
 ?>
@@ -18,6 +20,11 @@ $current_page = basename($_SERVER['PHP_SELF']);
         <li <?php if ($current_page == 'settings.php') echo 'class="active"'; ?>>
             <a href="<?php echo BASE_URL; ?>admin/settings.php"><i class="fas fa-cog"></i> Beállítások</a>
         </li>
+        <?php if (isAdmin()): ?>
+        <li <?php if ($current_page == 'users.php') echo 'class="active"'; ?>>
+            <a href="<?php echo BASE_URL; ?>admin/users.php"><i class="fas fa-users-cog"></i> Felhasználók</a>
+        </li>
+        <?php endif; ?>
     </ul>
     <div class="sidebar-footer">
         <p>Bejelentkezve: <?php echo escape(getCurrentUsername()); ?></p>

@@ -1,4 +1,227 @@
-document.addEventListener('DOMContentLoaded', function() {
+/***
+
+// assets/js/script.js (elejére)
+
+// PhantomTrack Színséma Grafikonokhoz
+const ptColors = {
+    primary: 'rgba(0, 212, 255, 1)',      // --accent-primary
+    primaryTransparent: 'rgba(0, 212, 255, 0.2)',
+    secondary: 'rgba(78, 205, 196, 1)',   // --accent-secondary
+    secondaryTransparent: 'rgba(78, 205, 196, 0.2)',
+    contrastHighlight: 'rgba(58, 123, 213, 1)', // --contrast-highlight
+    contrastHighlightTransparent: 'rgba(58, 123, 213, 0.2)',
+    textPrimary: 'rgba(255, 255, 255, 1)', // --text-primary
+    textSecondary: 'rgba(160, 167, 211, 1)', // --text-secondary
+
+    // Új, harmonizáló színek
+    green: 'rgba(46, 213, 115, 1)',        // --color-success
+    greenTransparent: 'rgba(46, 213, 115, 0.2)',
+    yellow: 'rgba(255, 202, 40, 1)',      // --color-warning
+    yellowTransparent: 'rgba(255, 202, 40, 0.2)',
+    red: 'rgba(255, 71, 87, 1)',          // --color-error
+    redTransparent: 'rgba(255, 71, 87, 0.2)',
+    
+    // További paletta fánkdiagramokhoz
+    purple: 'rgba(153, 102, 255, 1)',
+    purpleTransparent: 'rgba(153, 102, 255, 0.2)',
+    orange: 'rgba(255, 159, 64, 1)',
+    orangeTransparent: 'rgba(255, 159, 64, 0.2)',
+    pink: 'rgba(255, 99, 132, 1)',
+    pinkTransparent: 'rgba(255, 99, 132, 0.2)',
+    lightBlue: 'rgba(54, 162, 235, 1)',
+    lightBlueTransparent: 'rgba(54, 162, 235, 0.2)',
+    teal: 'rgba(75, 192, 192, 1)',
+    tealTransparent: 'rgba(75, 192, 192, 0.2)',
+    grey: 'rgba(120, 120, 120, 1)',
+    greyTransparent: 'rgba(120, 120, 120, 0.2)'
+};
+
+// Globális Chart.js beállítások a téma illesztéséhez
+if (typeof Chart !== 'undefined') {
+    Chart.defaults.font.family = "'Poppins', 'Segoe UI', sans-serif";
+    Chart.defaults.color = ptColors.textSecondary; // Tengelyek, címkék színe
+    Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.1)'; // Rácsvonalak színe
+
+    // Tooltip stílusok (opcionális, de szép)
+    Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(30, 30, 50, 0.8)';
+    Chart.defaults.plugins.tooltip.titleColor = ptColors.primary;
+    Chart.defaults.plugins.tooltip.bodyColor = ptColors.textPrimary;
+    Chart.defaults.plugins.tooltip.borderColor = ptColors.primaryTransparent;
+    Chart.defaults.plugins.tooltip.borderWidth = 1;
+    Chart.defaults.plugins.tooltip.padding = 10;
+    Chart.defaults.plugins.tooltip.cornerRadius = 6;
+    Chart.defaults.plugins.tooltip.displayColors = false; // Elrejti a színmintát a tooltipben, ha nem kell
+}
+
+// Segédfüggvény az adatok AJAX lekéréséhez
+async function fetchChartData(url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status} for URL: ${url}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error("Hiba a grafikon adatainak lekérésekor:", error);
+        // Opcionálisan jeleníts meg egy hibaüzenetet a grafikon helyén
+        return null;
+    }
+}
+
+// Globális változók a chart instance-ek és közös beállítások tárolására
+const CHART_INSTANCES = {};
+const DOUGHNUT_CHART_OPTIONS = {
+    responsive: true, maintainAspectRatio: false, cutout: '65%',
+    plugins: { legend: { position: 'bottom', labels: { padding: 15, boxWidth: 12 } } }
+};
+const DOUGHNUT_COLORS = [
+    ptColors.primary, ptColors.secondary, ptColors.green, ptColors.purple,
+    ptColors.orange, ptColors.yellow, ptColors.red, ptColors.lightBlue, ptColors.teal, ptColors.grey
+];
+
+/**
+ * Segédfüggvény egy chart példány megsemmisítésére, ha létezik.
+ * @param {string} chartId A canvas elem ID-ja.
+ *
+function destroyChartIfExists(chartId) {
+    if (CHART_INSTANCES[chartId]) {
+        CHART_INSTANCES[chartId].destroy();
+        delete CHART_INSTANCES[chartId];
+    }
+}
+
+/**
+ * Fő függvény a dashboard grafikonjainak és kártyáinak renderelésére.
+ * @param {object} apiData - A szerverről kapott, összesített adatobjektum.
+ *
+function renderDashboard(apiData) {
+    // --- GRAFIKONOK RENDERELÉSE ---
+
+    const renderChart = (ctxId, type, data, options) => {
+        const ctx = document.getElementById(ctxId)?.getContext('2d');
+        if (ctx && data && data.labels && data.labels.length > 0) {
+            destroyChartIfExists(ctxId);
+            CHART_INSTANCES[ctxId] = new Chart(ctx, { type, data, options });
+        } else if (ctx) {
+            ctx.canvas.parentElement.innerHTML = `<p class="chart-placeholder">Nincs megjeleníthető adat.</p>`;
+        }
+    };
+    
+    // Napi Megnyitások
+    renderChart('dailyOpensChartOverall', 'line',
+        { labels: apiData.daily_opens_overall?.labels, datasets: [{ label: 'Megnyitások', data: apiData.daily_opens_overall?.data, borderColor: ptColors.primary, backgroundColor: ptColors.primaryTransparent, tension: 0.3, fill: true }] },
+        { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'day', tooltipFormat: 'yyyy.MM.dd' } }, y: { beginAtZero: true } }, plugins: { legend: { display: false } } }
+    );
+    // Top Tokenek
+    renderChart('topTokensChart', 'bar',
+        { labels: apiData.top_tokens?.labels, datasets: [{ label: 'Megnyitások', data: apiData.top_tokens?.data, backgroundColor: DOUGHNUT_COLORS }] },
+        { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    );
+    // Országok
+    renderChart('countryDistributionChart', 'bar',
+        { labels: apiData.country_distribution?.labels, datasets: [{ label: 'Megnyitások', data: apiData.country_distribution?.data, backgroundColor: ptColors.secondary }] },
+        { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    );
+    // Böngészők, OS, Eszközök
+    renderChart('browserDistributionChart', 'doughnut', { labels: apiData.browser_distribution?.labels, datasets: [{ data: apiData.browser_distribution?.data, backgroundColor: DOUGHNUT_COLORS }] }, DOUGHNUT_CHART_OPTIONS);
+    renderChart('osDistributionChart', 'doughnut', { labels: apiData.os_distribution?.labels, datasets: [{ data: apiData.os_distribution?.data, backgroundColor: DOUGHNUT_COLORS.slice().reverse() }] }, DOUGHNUT_CHART_OPTIONS);
+    renderChart('deviceTypeDistributionChart', 'doughnut', { labels: apiData.device_type_distribution?.labels, datasets: [{ data: apiData.device_type_distribution?.data, backgroundColor: [ptColors.green, ptColors.contrastHighlight, ...DOUGHNUT_COLORS.slice(2)] }] }, DOUGHNUT_CHART_OPTIONS);
+    
+    // --- TOVÁBBI GRAFIKONOK --- (a meglévő HTML elemek alapján)
+    // A legtöbb ezek közül nincs is a jelenlegi dashboard.php-ben, de a logika itt van hozzájuk.
+    renderChart('topReferrersChart', 'bar', { labels: apiData.top_referrers?.labels, datasets: [{ data: apiData.top_referrers?.data, backgroundColor: ptColors.greenTransparent, borderColor: ptColors.green, borderWidth:1 }] }, {indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins: { legend: { display: false } }});
+    renderChart('weeklyOpensChart', 'bar', { labels: apiData.weekly_opens_overall?.labels, datasets: [{ data: apiData.weekly_opens_overall?.data, backgroundColor: ptColors.purple }] }, {scales: {x:{type:'time', time:{unit:'week'}}}, plugins:{legend:{display:false}}});
+    renderChart('hourlyActivityOverallChart', 'bar', { labels: apiData.hourly_activity_overall?.labels, datasets: [{ data: apiData.hourly_activity_overall?.data, backgroundColor: ptColors.orange }] }, {plugins:{legend:{display:false}}});
+    renderChart('ispDistributionChart', 'doughnut', { labels: apiData.isp_distribution?.labels, datasets: [{ data: apiData.isp_distribution?.data, backgroundColor:DOUGHNUT_COLORS.slice(1) }] }, DOUGHNUT_CHART_OPTIONS);
+    renderChart('tokenStatusRatioChart', 'pie', { labels: apiData.token_status_ratio?.labels, datasets: [{ data: apiData.token_status_ratio?.data, backgroundColor:[ptColors.green, ptColors.red] }] }, {plugins:{legend:{position:'bottom'}}});
+    renderChart('newTokensMonthlyChart', 'line', { labels: apiData.new_tokens_monthly?.labels, datasets: [{ data: apiData.new_tokens_monthly?.data, borderColor: ptColors.contrastHighlight, fill:true }] }, {scales:{x:{type:'time',time:{unit:'month'}}}});
+    renderChart('topCitiesChart', 'bar', { labels: apiData.top_cities?.labels, datasets: [{ data: apiData.top_cities?.data, backgroundColor:ptColors.pink }] }, {indexAxis:'y', plugins:{legend:{display:false}}});
+    renderChart('botActivityRatioChart', 'pie', { labels: apiData.bot_activity_ratio?.labels, datasets: [{ data: apiData.bot_activity_ratio?.data, backgroundColor:[ptColors.secondary, ptColors.grey] }] }, {plugins:{legend:{position:'bottom'}}});
+
+    // --- KÁRTYÁK ÉS LISTÁK FRISSÍTÉSE ---
+    
+    // Átlagos megnyitások
+    if (apiData.average_opens_per_token) {
+        document.getElementById('avgOpensPerToken').textContent = apiData.average_opens_per_token.average;
+        document.getElementById('avgOpensTotalInfo').textContent = `(${apiData.average_opens_per_token.total_opens} / ${apiData.average_opens_per_token.active_tokens} token)`;
+    }
+
+    // Geo telítettség
+    if (apiData.geo_data_completeness) {
+        document.getElementById('geoCompletenessCountry').textContent = `Ország: ${apiData.geo_data_completeness.country_percentage}%`;
+        document.getElementById('geoCompletenessCity').textContent = `Város: ${apiData.geo_data_completeness.city_percentage}%`;
+    }
+    
+    // Legkevésbé aktív tokenek
+    const leastActiveEl = document.getElementById('leastActiveTokensList');
+    if (leastActiveEl && apiData.least_active_tokens) {
+        if (apiData.least_active_tokens.length === 0) {
+            leastActiveEl.innerHTML = '<p>Minden token aktív.</p>';
+        } else {
+            let listHtml = '<ul class="simple-list-condensed">';
+            apiData.least_active_tokens.forEach(t => {
+                listHtml += `<li><strong>${t.name}</strong><br><small class="text-muted">Utoljára: ${t.last_open || 'Soha'}</small></li>`;
+            });
+            leastActiveEl.innerHTML = listHtml + '</ul>';
+        }
+    }
+
+    // Trend
+    if (apiData.opens_trend_comparison) {
+        const trend = apiData.opens_trend_comparison;
+        const trendEl = document.getElementById('opensChangePercentage');
+        let changeText = `${trend.percentage_change}%`;
+        let changeClass = trend.percentage_change > 0 ? 'text-success' : (trend.percentage_change < 0 ? 'text-danger' : '');
+        if (trend.percentage_change > 0) changeText = `+${changeText}`;
+        trendEl.innerHTML = `<span class="${changeClass}">${changeText}</span>`;
+        document.getElementById('opensChangePeriodInfo').innerHTML = `(${trend.current_opens} vs ${trend.previous_opens})<br>Elmúlt 7 vs. előző 7 nap`;
+    }
+}
+
+/**
+ * Fő belépési pont. A `window.onload` biztosítja, hogy minden (kép, stíluslap) betöltődjön, mielőtt az adatkérés elindul.
+ *
+window.onload = function() {
+    const mainDashboard = document.querySelector('.content-header h1 i.fa-tachometer-alt');
+    if (!mainDashboard) return; // Ne fusson le más oldalakon, csak a dashboardon
+
+    console.log("PhantomTrack Dashboard: Adatok lekérése indul...");
+    
+    // Loading állapot jelzése
+    document.querySelectorAll('.chart-container').forEach(container => {
+        const canvasId = container.querySelector('canvas')?.id;
+        if(canvasId) {
+             container.innerHTML = `<p class="chart-placeholder">Adatok betöltése...</p><canvas id="${canvasId}" style="display:none;"></canvas>`;
+        }
+    });
+
+    // Egyetlen, központi adatlekérés
+    fetchChartData(`${ajaxBaseUrl}?action=get_dashboard_data&days=30`)
+        .then(data => {
+            // Placeholder-ek eltávolítása és canvas-ok visszaállítása
+            document.querySelectorAll('.chart-container').forEach(container => {
+                const canvas = container.querySelector('canvas');
+                container.innerHTML = '';
+                if(canvas) {
+                    canvas.style.display = '';
+                    container.appendChild(canvas);
+                }
+            });
+
+            if (data && !data.error) {
+                renderDashboard(data);
+            } else {
+                console.error("Hiba a dashboard adatok feldolgozásakor:", data?.error);
+                document.querySelector('.main-content').insertAdjacentHTML('afterbegin', '<div class="message error-message">Hiba történt a dashboard adatok betöltésekor.</div>');
+            }
+        })
+        .catch(err => {
+            console.error("Végzetes hálózati hiba:", err);
+            document.querySelector('.main-content').insertAdjacentHTML('afterbegin', '<div class="message error-message">Hálózati hiba a dashboard adatok betöltésekor.</div>');
+        });
+};
+*/
+document.addEventListener('DOMContentLoaded', async function(){
     
     // Fánkdiagramok közös beállításai
     const doughnutChartOptions = {
@@ -729,3 +952,4 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+

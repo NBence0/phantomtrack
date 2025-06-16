@@ -93,13 +93,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($_POST['action'] === 'create_token') {
             $name = trim($_POST['token_name'] ?? '');
             $description = trim($_POST['token_description'] ?? '');
+             $categoryId = !empty($_POST['token_category_id']) ? (int)$_POST['token_category_id'] : null; // ÚJ
             if (!empty($name)) {
                 $newTokenValue = generateUniqueToken();
-                $stmt = $db->prepare("INSERT INTO tokens (user_id, token_value, name, description, is_active, created_at) VALUES (:user_id, :token_value, :name, :description, 1, NOW())");
+                $   $stmt = $db->prepare("INSERT INTO tokens (user_id, token_value, name, description, category_id, is_active, created_at) VALUES (:user_id, :token_value, :name, :description, :category_id, 1, NOW())"); // Bővítve a category_id-val
                 $stmt->bindParam(':user_id', $currentUserId);
                 $stmt->bindParam(':token_value', $newTokenValue);
                 $stmt->bindParam(':name', $name);
                 $stmt->bindParam(':description', $description);
+                $stmt->bindParam(':category_id', $categoryId); // ÚJ BIND
                 if ($stmt->execute()) {
                     $_SESSION['flash_message'] = "Token sikeresen létrehozva.";
                     $_SESSION['flash_message_type'] = "success";
@@ -160,11 +162,6 @@ if (isset($_GET['action'])) {
 }
 
 
-// Tokenek listázása
-$stmt = $db->prepare("SELECT id, token_value, name, description, is_active, created_at FROM tokens WHERE user_id = :user_id ORDER BY created_at DESC");
-$stmt->bindParam(':user_id', $currentUserId);
-$stmt->execute();
-$tokens = $stmt->fetchAll();
 
 ?>
 <div class="content-header">
@@ -206,6 +203,15 @@ $tokens = $stmt->fetchAll();
                             <?php echo escape($cat['name']); ?>
                         </option>
                     <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="token_category_id_modal">Kategória:</label>
+                <select id="token_category_id_modal" name="token_category_id">
+                <option value="">Nincs kategória</option>
+                <?php foreach ($availableCategories as $cat): ?>
+                <option value="<?php echo $cat['id']; ?>"><?php echo escape($cat['name']); ?></option>
+                <?php endforeach; ?>
                 </select>
             </div>
             <?php if ($filterCategoryId): ?>

@@ -53,6 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $newName = trim($_POST['token_name'] ?? '');
         $newDescription = trim($_POST['token_description'] ?? '');
         $newIsActive = isset($_POST['is_active']) ? 1 : 0; // Checkbox-hoz
+        $newCategoryId = !empty($_POST['token_category_id']) ? (int)$_POST['token_category_id'] : null;
         // Ha select-et használnánk: $newIsActive = (int)($_POST['is_active'] ?? 0);
 
         if (empty($newName)) {
@@ -69,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $updateStmt->bindParam(':is_active', $newIsActive, PDO::PARAM_INT);
             $updateStmt->bindParam(':id', $tokenId);
             $updateStmt->bindParam(':user_id', $currentUserId);
+            $updateStmt->bindParam(':category_id', $newCategoryId); // A PDO automatikusan kezeli a NULL értéket, ha a $newCategoryId null.
 
             if ($updateStmt->execute()) {
                 $_SESSION['flash_message'] = "Token sikeresen frissítve.";

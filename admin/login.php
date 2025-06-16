@@ -72,6 +72,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
                 <button type="submit" class="btn btn-primary">Bejelentkezés</button>
             </form>
+            </form>
+            <p style="margin-top: 20px;">
+                Nincs még fiókod? <a href="<?php echo BASE_URL; ?>admin/register.php" style="color:var(--accent-primary);">Regisztrálj most!</a>
+            </p>
         </div>
     </div>
 </body>

@@ -36,6 +36,148 @@ function verifyTokenAccess($db, $tokenId, $currentUserId) {
 }
 
 switch ($action) {
+// Helyettesítsd ezzel a teljes case 'get_dashboard_data': ... break; blokkot
+    case 'get_dashboard_data':
+        $output = [];
+        $days = (int)($_GET['days'] ?? 30);
+        $limit = 7;
+        $limit_large = 10;
+        
+        try {
+            // ALAPFÜGGVÉNY ELOSZLÁSOK SZÁMÍTÁSÁRA
+            function getDistributionData($db, $field, $currentUserId, $days, $maxItems = 6) {
+                $stmt = $db->prepare("
+                    SELECT CASE WHEN {$field} IS NULL OR {$field} = '' OR {$field} = 'N/A' THEN 'Ismeretlen' ELSE {$field} END as item_name, COUNT(al.id) as item_count
+                    FROM activity_logs al JOIN tokens t ON al.token_id = t.id
+                    WHERE t.user_id = :user_id AND al.timestamp >= DATE_SUB(CURDATE(), INTERVAL :days DAY)
+                    GROUP BY item_name ORDER BY item_count DESC
+                ");
+                $stmt->execute([':user_id' => $currentUserId, ':days' => $days]);
+                $data = $stmt->fetchAll();
+                $labels = []; $counts = []; $otherCount = 0;
+                foreach ($data as $index => $row) {
+                    if ($index < $maxItems) { $labels[] = $row['item_name']; $counts[] = (int)$row['item_count']; } else { $otherCount += (int)$row['item_count']; }
+                }
+                if ($otherCount > 0) { $labels[] = 'Egyéb'; $counts[] = $otherCount; }
+                return ['labels' => $labels, 'data' => $counts];
+            }
+
+            // NAPI MEGNYITÁSOK
+            $dailyStmt = $db->prepare("SELECT DATE(al.timestamp) as d, COUNT(al.id) as c FROM activity_logs al JOIN tokens t ON al.token_id=t.id WHERE t.user_id=:uid AND al.timestamp>=DATE_SUB(CURDATE(),INTERVAL :d DAY) GROUP BY d ORDER BY d");
+            $dailyStmt->execute([':uid' => $currentUserId, ':d' => $days]);
+            $data = $dailyStmt->fetchAll(); $dataMap=[]; foreach($data as $r){$dataMap[$r['d']]=$r['c'];} $labels=[];$counts=[];
+            $p = new DatePeriod(new DateTime("-{$days} days"),new DateInterval('P1D'),new DateTime('+1 day'));
+            foreach($p as $dt){$ds=$dt->format('Y-m-d');$labels[]=$ds;$counts[]=$dataMap[$ds]??0;}
+            $output['daily_opens_overall'] = ['labels'=>$labels,'data'=>$counts];
+            
+            // TOP TOKENEK
+            $topTokensStmt = $db->prepare("SELECT t.name, COUNT(al.id) as c FROM activity_logs al JOIN tokens t ON al.token_id=t.id WHERE t.user_id=:uid AND al.timestamp>=DATE_SUB(CURDATE(),INTERVAL :d DAY) GROUP BY t.id, t.name ORDER BY c DESC LIMIT {$limit}");
+            $topTokensStmt->execute([':uid'=>$currentUserId,':d'=>$days]);
+            $data=$topTokensStmt->fetchAll();
+            $output['top_tokens']=['labels'=>array_column($data,'name'),'data'=>array_map('intval',array_column($data,'c'))];
+
+            // ELOSZLÁSOK
+            $output['country_distribution']=getDistributionData($db, 'al.country_code', $currentUserId, $days, 10);
+            $output['browser_distribution']=getDistributionData($db, 'al.browser_name', $currentUserId, $days);
+            $output['os_distribution']=getDistributionData($db, 'al.os_name', $currentUserId, $days);
+            $output['device_type_distribution']=getDistributionData($db, 'al.device_type', $currentUserId, $days);
+            $output['isp_distribution']=getDistributionData($db, 'al.isp', $currentUserId, $days);
+
+            // TOP REFERREREK
+            $refStmt=$db->prepare("SELECT SUBSTRING_INDEX(REPLACE(REPLACE(al.referrer, 'http://',''),'https://',''),'/',1) as d, COUNT(al.id) as c FROM activity_logs al JOIN tokens t ON al.token_id=t.id WHERE t.user_id=:uid AND al.referrer IS NOT NULL AND al.referrer NOT IN ('N/A','') AND al.timestamp>=DATE_SUB(CURDATE(),INTERVAL :d DAY) GROUP BY d HAVING d!='' ORDER BY c DESC LIMIT {$limit_large}");
+            $refStmt->execute([':uid'=>$currentUserId,':d'=>$days]);
+            $data=$refStmt->fetchAll();
+            $output['top_referrers']=['labels'=>array_column($data,'d'),'data'=>array_map('intval',array_column($data,'c'))];
+
+            // HETI MEGNYITÁSOK
+            $weeklyStmt = $db->prepare("SELECT YEARWEEK(al.timestamp,1) as yw,COUNT(al.id) as c FROM activity_logs al JOIN tokens t ON al.token_id=t.id WHERE t.user_id=:uid AND al.timestamp>=DATE_SUB(CURDATE(),INTERVAL 84 DAY) GROUP BY yw ORDER BY yw");
+            $weeklyStmt->execute([':uid'=>$currentUserId]);
+            $data=$weeklyStmt->fetchAll();$dataMap=[];foreach($data as $r){$dataMap[$r['yw']]=(int)$r['c'];} $labels=[];$counts=[];
+            $cw=new DateTime(); $cw->setISODate((int)$cw->format('o'),(int)$cw->format('W'),1)->setTime(0,0,0);
+            for($i=11;$i>=0;$i--){$lw=clone $cw; if($i>0){$lw->modify("-{$i} weeks");} $labels[]=$lw->format("Y-m-d"); $counts[]=$dataMap[$lw->format("oW")]??0;}
+            $output['weekly_opens_overall']=['labels'=>$labels,'data'=>$counts];
+            
+            // ÓRÁNKÉNTI AKTIVITÁS
+            $hourlyData=getDistributionData($db, 'HOUR(al.timestamp)', $currentUserId, $days, 24);
+            $fullHLabels=array_map(function($h){return str_pad($h,2,'0',STR_PAD_LEFT).':00';},range(0,23));
+            $fullHCounts=array_fill(0,24,0);
+            foreach($hourlyData['labels'] as $idx => $label){if($label!=='Ismeretlen'){$fullHCounts[(int)$label]=$hourlyData['data'][$idx];}}
+            $output['hourly_activity_overall']=['labels'=>$fullHLabels,'data'=>$fullHCounts];
+
+            // TOKEN STÁTUSZ
+            $statusStmt=$db->prepare("SELECT CASE t.is_active WHEN 1 THEN 'Aktív' ELSE 'Inaktív' END as s,COUNT(t.id) as c FROM tokens t WHERE t.user_id=:uid GROUP BY s");
+            $statusStmt->execute([':uid'=>$currentUserId]);$data=$statusStmt->fetchAll();
+            $output['token_status_ratio']=['labels'=>array_column($data,'s'),'data'=>array_map('intval',array_column($data,'c'))];
+            
+            // ÚJ TOKENEK HAVONTA
+            $newTokensStmt = $db->prepare("SELECT DATE_FORMAT(t.created_at, '%Y-%m') as m, COUNT(t.id) as c FROM tokens t WHERE t.user_id = :uid AND t.created_at >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) GROUP BY m ORDER BY m ASC");
+            $newTokensStmt->execute([':uid'=>$currentUserId]);
+            $data=$newTokensStmt->fetchAll();$dataMap=[];foreach($data as $r){$dataMap[$r['m']]=(int)$r['c'];}$labels=[];$counts=[];
+            $cm=new DateTime(date('Y-m-01')); for($i=11;$i>=0;$i--){$lm=clone $cm;if($i>0){$lm->modify("-{$i} months");} $ml=$lm->format('Y-m');$labels[]=$ml;$counts[]=$dataMap[$ml]??0;}
+            $output['new_tokens_monthly']=['labels'=>$labels,'data'=>$counts];
+            
+            // TOP VÁROSOK
+            $output['top_cities']=getDistributionData($db,'al.city_name',$currentUserId,$days,10);
+            
+            // BOT AKTIVITÁS
+            $botStmt=$db->prepare("SELECT SUM(CASE WHEN al.device_type='Bot' THEN 1 ELSE 0 END) as bots,COUNT(al.id) as total FROM activity_logs al JOIN tokens t ON al.token_id=t.id WHERE t.user_id=:uid AND al.timestamp>=DATE_SUB(CURDATE(),INTERVAL :d DAY)");
+            $botStmt->execute([':uid'=>$currentUserId,':d'=>$days]); $res=$botStmt->fetch(PDO::FETCH_ASSOC)?:['bots'=>0,'total'=>0];
+            $output['bot_activity_ratio']=['labels'=>['Emberi','Bot'],'data'=>[$res['total']-(int)$res['bots'],(int)$res['bots']]];
+            
+            // ÁTLAGOS MEGNYITÁSOK/TOKEN
+            $avgStmt=$db->prepare("SELECT (SELECT COUNT(*) FROM activity_logs al_inner JOIN tokens t_inner ON al_inner.token_id=t_inner.id WHERE t_inner.user_id=:u1) as tot, (SELECT COUNT(*) FROM tokens WHERE user_id=:u2 AND is_active=1) as act");
+            $avgStmt->execute([':u1'=>$currentUserId,':u2'=>$currentUserId]);$res=$avgStmt->fetch(PDO::FETCH_ASSOC)?:['tot'=>0,'act'=>0];
+            $avg=$res['act']>0?round((int)$res['tot']/(int)$res['act'],2):0;
+            $output['average_opens_per_token']=['average'=>$avg,'total_opens'=>(int)$res['tot'],'active_tokens'=>(int)$res['act']];
+
+            // HISZTOGRAM
+            $histStmt=$db->prepare("SELECT COUNT(al.id) as c FROM tokens t LEFT JOIN activity_logs al ON t.id=al.token_id WHERE t.user_id=:uid GROUP BY t.id");
+            $histStmt->execute([':uid'=>$currentUserId]);$bins=['0'=>0,'1-10'=>0,'11-50'=>0,'51-100'=>0,'101-500'=>0,'500+'=>0];
+            while($c=(int)$histStmt->fetchColumn()){if($c==0)$bins['0']++;elseif($c<=10)$bins['1-10']++;elseif($c<=50)$bins['11-50']++;elseif($c<=100)$bins['51-100']++;elseif($c<=500)$bins['101-500']++;else $bins['500+']++;}
+            $output['token_activity_distribution']=['labels'=>array_keys($bins),'data'=>array_values($bins)];
+            
+            // KÁRTYA STATOK (JAVÍTVA)
+            $statsStmt = $db->prepare("
+                SELECT COUNT(al.id) as t, 
+                    SUM(CASE WHEN al.country_code IS NOT NULL AND al.country_code != '' THEN 1 ELSE 0 END) as wc, 
+                    SUM(CASE WHEN al.city_name IS NOT NULL AND al.city_name != '' THEN 1 ELSE 0 END) as wci, 
+                    SUM(CASE WHEN al.browser_name IS NULL OR al.browser_name IN ('N/A','') THEN 1 ELSE 0 END) as ub, 
+                    SUM(CASE WHEN al.os_name IS NULL OR al.os_name IN ('N/A','') THEN 1 ELSE 0 END) as uo
+                FROM activity_logs al 
+                JOIN tokens t ON al.token_id = t.id 
+                WHERE t.user_id = :uid AND al.timestamp >= DATE_SUB(CURDATE(), INTERVAL :d DAY)
+            ");
+            $statsStmt->execute([':uid'=>$currentUserId,':d'=>$days]);$res=$statsStmt->fetch(PDO::FETCH_ASSOC)?:['t'=>0,'wc'=>0,'wci'=>0,'ub'=>0,'uo'=>0];
+            $total_logs = (int)$res['t'];
+            $output['geo_data_completeness']=['country_percentage'=>$total_logs>0?round(((int)$res['wc']/$total_logs)*100,1):0,'city_percentage'=>$total_logs>0?round(((int)$res['wci']/$total_logs)*100,1):0, 'total_logs_for_geo'=>$total_logs];
+            $output['data_quality_stats']=['total_logs'=>$total_logs, 'unknown_browser_perc'=>$total_logs>0?round(((int)$res['ub']/$total_logs)*100,1):0, 'unknown_os_perc'=>$total_logs>0?round(((int)$res['uo']/$total_logs)*100,1):0,'unknown_browser_abs'=>(int)$res['ub'],'unknown_os_abs'=>(int)$res['uo']];
+            $output['daily_average_opens']=['daily_average'=>$days>0?round($total_logs/$days,1):0, 'period_days'=>$days,'total_in_period'=>$total_logs];
+            // MOST ACTIVE HOUR
+            $mostActiveStmt = $db->prepare("SELECT HOUR(al.timestamp) as h, COUNT(al.id) as hc FROM activity_logs al JOIN tokens t ON al.token_id=t.id WHERE t.user_id=:uid AND al.timestamp>=DATE_SUB(CURDATE(),INTERVAL :d DAY) GROUP BY h ORDER BY hc DESC LIMIT 1");
+            $mostActiveStmt->execute([':uid' => $currentUserId, ':d' => $days]); $res = $mostActiveStmt->fetch(PDO::FETCH_ASSOC);
+            $output['most_active_hour_overall'] = ['hour'=>$res['h'] !== null ? str_pad($res['h'],2,'0',STR_PAD_LEFT).':00':'N/A', 'count' => (int)($res['hc'] ?? 0)];
+
+            // KATEGÓRIÁK
+            $output['category_opens_distribution'] = getDistributionData($db, '(SELECT tc.name FROM token_categories tc WHERE tc.id = t.category_id)', $currentUserId, $days);
+            
+            // LEGK. AKTÍV
+            $leastStmt=$db->prepare("SELECT t.name,MAX(al.timestamp) as last_open FROM tokens t LEFT JOIN activity_logs al ON t.id=al.token_id WHERE t.user_id=:uid AND t.is_active=1 GROUP BY t.id ORDER BY last_open ASC LIMIT 5");
+            $leastStmt->execute([':uid'=>$currentUserId]);
+            $output['least_active_tokens']=$leastStmt->fetchAll();
+            
+            // TREND
+            $currentOpensStmt=$db->prepare("SELECT COUNT(id) FROM activity_logs al JOIN tokens t ON al.token_id = t.id WHERE t.user_id = :uid AND al.timestamp >= DATE_SUB(CURDATE(),INTERVAL 7 DAY)");
+            $currentOpensStmt->execute([':uid'=>$currentUserId]);$current_opens=(int)$currentOpensStmt->fetchColumn();
+            $prevOpensStmt=$db->prepare("SELECT COUNT(id) FROM activity_logs al JOIN tokens t ON al.token_id = t.id WHERE t.user_id = :uid AND al.timestamp BETWEEN DATE_SUB(CURDATE(),INTERVAL 14 DAY) AND DATE_SUB(CURDATE(),INTERVAL 7 DAY)");
+            $prevOpensStmt->execute([':uid'=>$currentUserId]);$previous_opens=(int)$prevOpensStmt->fetchColumn();
+            $p_change=$previous_opens>0?round((($current_opens-$previous_opens)/$previous_opens)*100,1):($current_opens>0?100:0);
+            $output['opens_trend_comparison']=['current_opens'=>$current_opens,'previous_opens'=>$previous_opens,'percentage_change'=>$p_change];
+        
+        } catch (PDOException $e) {
+            $output = ['error' => 'Adatbázis hiba történt.', 'details' => $e->getMessage()];
+            http_response_code(500);
+        }
+        break;
     case 'daily_opens_overall':
         // Napi megnyitások az elmúlt 30 napra
         $days = (int)($_GET['days'] ?? 30);
@@ -783,13 +925,13 @@ switch ($action) {
     case 'data_quality_stats': // Ez a 19-es ponthoz
         $stmt = $db->prepare("
             SELECT
-                COUNT(al.id) as total_logs, -- EGYÉRTELMŰSÍTVE: al.id
+                COUNT(al.id) as total_logs,
                 SUM(CASE WHEN al.browser_name IS NULL OR al.browser_name = '' OR al.browser_name = 'N/A' OR al.browser_name = 'Ismeretlen Böngésző' THEN 1 ELSE 0 END) as unknown_browser,
-                SUM(CASE WHEN al.os_name IS NULL OR al.os_name = '' OR al.os_name = 'N/A' OR os_name = 'Ismeretlen OS' THEN 1 ELSE 0 END) as unknown_os,
-                SUM(CASE WHEN al.device_type IS NULL OR al.device_type = '' OR al.device_type = 'N/A' OR device_type = 'Ismeretlen Eszköz' THEN 1 ELSE 0 END) as unknown_device_type,
+                SUM(CASE WHEN al.os_name IS NULL OR al.os_name = '' OR al.os_name = 'N/A' OR al.os_name = 'Ismeretlen OS' THEN 1 ELSE 0 END) as unknown_os,
+                SUM(CASE WHEN al.device_type IS NULL OR al.device_type = '' OR al.device_type = 'N/A' OR al.device_type = 'Ismeretlen Eszköz' THEN 1 ELSE 0 END) as unknown_device_type,
                 SUM(CASE WHEN al.country_code IS NULL OR al.country_code = '' THEN 1 ELSE 0 END) as unknown_country
-            FROM activity_logs al -- Itt adtunk aliast az activity_logs-nak: 'al'
-            JOIN tokens t ON al.token_id = t.id -- Itt adtunk aliast a tokens-nek: 't'
+            FROM activity_logs al
+            JOIN tokens t ON al.token_id = t.id
             WHERE t.user_id = :user_id
         ");
         $stmt->bindParam(':user_id', $currentUserId, PDO::PARAM_INT);

@@ -2,19 +2,19 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/db.php';
 
-function registerUser($username, $email, $password) {
+function registerUser($username, $email, $password, $is_admin = false) { // Új paraméter alapértelmezetten false
     $db = getDB();
     $passwordHash = password_hash($password, PASSWORD_DEFAULT);
     try {
-        $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, created_at) VALUES (:username, :email, :password_hash, NOW())");
+        // SQL lekérdezés kiegészítve az is_admin oszloppal
+        $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, is_admin, created_at) VALUES (:username, :email, :password_hash, :is_admin, NOW())");
         $stmt->bindParam(':username', $username);
         $stmt->bindParam(':email', $email);
         $stmt->bindParam(':password_hash', $passwordHash);
+        $stmt->bindParam(':is_admin', $is_admin, PDO::PARAM_INT); // A típust is megadjuk
         $stmt->execute();
         return $db->lastInsertId();
     } catch (PDOException $e) {
-        // Kezeld a duplikált felhasználónév/email hibát
-        // if ($e->errorInfo[1] == 1062) { return false; }
         error_log("User registration error: " . $e->getMessage());
         return false;
     }
@@ -75,7 +75,11 @@ function getCurrentUserRole() {
     $stmt = $db->prepare("SELECT is_admin FROM users WHERE id = :user_id");
     $stmt->execute([':user_id' => getCurrentUserId()]);
     $role = $stmt->fetchColumn();
-    return $role == 1 ? 'admin' : 'user'; // Vagy csak a 0/1 értéket visszaadni
+    // Fontos ellenőrizni, hogy a fetchColumn ne false-szal térjen vissza (ha pl. user törlődött de a session él)
+    if ($role === false) {
+        return 'user'; // Alapértelmezett, biztonságos szerepkör
+    }
+    return $role == 1 ? 'admin' : 'user';
 }
 
 function isAdmin() {
@@ -83,11 +87,11 @@ function isAdmin() {
 }
 
 function requireAdmin() {
-    requireLogin();
+    requireLogin(); // Először ellenőrizzük, hogy be van-e lépve egyáltalán
     if (!isAdmin()) {
         $_SESSION['flash_message'] = "Nincs jogosultságod az oldal megtekintéséhez.";
         $_SESSION['flash_message_type'] = "error";
-        header('Location: ' . BASE_URL . 'admin/dashboard.php'); // Vagy egy "access denied" oldalra
+        header('Location: ' . BASE_URL . 'admin/dashboard.php'); // Visszairányítjuk a főoldalra
         exit;
     }
 }
