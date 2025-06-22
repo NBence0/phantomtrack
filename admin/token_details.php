@@ -1,8 +1,12 @@
 <?php
-require_once __DIR__ . '/../includes/header.php'; // Ez már tartalmazza a config.php-t, auth.php-t stb.
+// === 1. LÉPÉS: MINDEN FELDOLGOZÓ LOGIKA (HTML ELŐTT) ===
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/db.php';
+
 requireLogin();
 
-$pageTitle = "Token Részletek"; // Alapértelmezett
 $db = getDB();
 $currentUserId = getCurrentUserId();
 $tokenId = (int)($_GET['id'] ?? 0);
@@ -14,12 +18,10 @@ if ($tokenId <= 0) {
     exit;
 }
 
-// Token alapadatai lekérdezése
-$stmt = $db->prepare("SELECT id, token_value, name, description, is_active, created_at FROM tokens WHERE id = :id AND user_id = :user_id");
-$stmt->bindParam(':id', $tokenId, PDO::PARAM_INT);
-$stmt->bindParam(':user_id', $currentUserId, PDO::PARAM_INT);
-$stmt->execute();
-$token = $stmt->fetch();
+// Token alapadatok lekérdezése (ellenőrzéshez és exporthoz)
+$tokenStmt = $db->prepare("SELECT id, token_value, name, description, is_active, created_at FROM tokens WHERE id = :id AND user_id = :user_id");
+$tokenStmt->execute([':id' => $tokenId, ':user_id' => $currentUserId]);
+$token = $tokenStmt->fetch();
 
 if (!$token) {
     $_SESSION['flash_message'] = "Token nem található vagy nincs jogosultságod megtekinteni.";
@@ -27,110 +29,89 @@ if (!$token) {
     header('Location: ' . BASE_URL . 'admin/tokens.php');
     exit;
 }
-$pageTitle = "Részletek: " . escape($token['name']);
-$tokenIdForJs = $token['id']; // Átadjuk a JS-nek
 
-// --- Aktivitási Napló Szűrési Logika (PHP oldal) ---
+// --- Szűrési paraméterek összegyűjtése (export és napló is használja) ---
 $filterIp = trim($_GET['filter_ip'] ?? '');
-// A dátumszűrő input mezők alapértelmezett értékei (PHP oldal)
-// Ha van GET paraméter, azt használjuk, egyébként az elmúlt 30 nap.
 $urlDateFrom = trim($_GET['filter_date_from'] ?? '');
 $urlDateTo = trim($_GET['filter_date_to'] ?? '');
 
+// --- EXPORTÁLÁSI LOGIKA ---
+if (isset($_GET['action']) && $_GET['action'] === 'export_json') {
+    
+    $exportSql = "SELECT * FROM activity_logs WHERE token_id = :token_id";
+    $exportParams = [':token_id' => $tokenId];
+
+    if (!empty($filterIp)) { $exportSql .= " AND ip_address LIKE :ip_address"; $exportParams[':ip_address'] = "%" . $filterIp . "%"; }
+    if (!empty($urlDateFrom) && DateTime::createFromFormat('Y-m-d', $urlDateFrom)) { $exportSql .= " AND DATE(timestamp) >= :date_from"; $exportParams[':date_from'] = $urlDateFrom; }
+    if (!empty($urlDateTo) && DateTime::createFromFormat('Y-m-d', $urlDateTo)) { $exportSql .= " AND DATE(timestamp) <= :date_to"; $exportParams[':date_to'] = $urlDateTo; }
+    
+    $exportSql .= " ORDER BY timestamp DESC";
+
+    $exportStmt = $db->prepare($exportSql);
+    $exportStmt->execute($exportParams);
+    $exportLogsData = $exportStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Fejlécek beállítása a JSON letöltéshez
+    header('Content-Type: application/json; charset=utf-8');
+    header('Content-Disposition: attachment; filename="token_'.preg_replace('/[^a-zA-Z0-9-]/', '_', $token['token_value']).'_logs_'.date('YmdHis').'.json"');
+    
+    echo json_encode($exportLogsData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    exit; // A szkript futása itt leáll, nincs HTML kimenet
+}
+
+
+// === 2. LÉPÉS: ADATOK LEKÉRDEZÉSE A MEGJELENÍTÉSHEZ ===
+// Ha a kód idáig eljut, az azt jelenti, hogy a normál oldalt kell megjeleníteni.
+
+$pageTitle = "Részletek: " . escape($token['name']);
+$tokenIdForJs = $token['id'];
+
+// --- Aktivitási Napló Szűrési és Lapozási Logika ---
 $defaultStartDateForForm = $urlDateFrom ?: date('Y-m-d', strtotime('-29 days'));
 $defaultEndDateForForm = $urlDateTo ?: date('Y-m-d');
 
 $logSql = "SELECT * FROM activity_logs WHERE token_id = :token_id";
 $logParams = [':token_id' => $tokenId];
 
-if (!empty($filterIp)) {
-    $logSql .= " AND ip_address LIKE :ip_address";
-    $logParams[':ip_address'] = "%" . $filterIp . "%";
-}
+if (!empty($filterIp)) { $logSql .= " AND ip_address LIKE :ip_address"; $logParams[':ip_address'] = "%" . $filterIp . "%"; }
+if (!empty($urlDateFrom) && DateTime::createFromFormat('Y-m-d', $urlDateFrom)) { $logSql .= " AND DATE(timestamp) >= :date_from"; $logParams[':date_from'] = $urlDateFrom; }
+if (!empty($urlDateTo) && DateTime::createFromFormat('Y-m-d', $urlDateTo)) { $logSql .= " AND DATE(timestamp) <= :date_to"; $logParams[':date_to'] = $urlDateTo; }
 
-// A PHP oldali naplóhoz a $urlDateFrom és $urlDateTo-t használjuk,
-// mert ezek azok, amik ténylegesen az URL-ben vannak a szűréshez.
-if (!empty($urlDateFrom)) {
-    if (DateTime::createFromFormat('Y-m-d', $urlDateFrom) !== false) {
-        $logSql .= " AND DATE(timestamp) >= :date_from";
-        $logParams[':date_from'] = $urlDateFrom;
-    } else {
-        $_SESSION['flash_message'] = (isset($_SESSION['flash_message']) ? $_SESSION['flash_message'].'<br>' : '') . "Érvénytelen 'tól' dátum formátum a napló szűrésénél.";
-        $_SESSION['flash_message_type'] = "warning";
-    }
-}
-if (!empty($urlDateTo)) {
-    if (DateTime::createFromFormat('Y-m-d', $urlDateTo) !== false) {
-        $logSql .= " AND DATE(timestamp) <= :date_to";
-        $logParams[':date_to'] = $urlDateTo;
-    } else {
-        $_SESSION['flash_message'] = (isset($_SESSION['flash_message']) ? $_SESSION['flash_message'].'<br>' : '') . "Érvénytelen 'ig' dátum formátum a napló szűrésénél.";
-        $_SESSION['flash_message_type'] = "warning";
-    }
-}
-
-// Lapozás bevezetése a naplóhoz
-$itemsPerPageLogs = (int)getAppSetting('items_per_page_logs', 50); // Új beállítás, vagy fix érték
-$currentPageLogs = isset($_GET['log_page']) ? (int)$_GET['log_page'] : 1;
-if ($currentPageLogs < 1) $currentPageLogs = 1;
-
-// Összes releváns log számának lekérdezése a lapozáshoz
-$countSql = "SELECT COUNT(*) FROM activity_logs WHERE token_id = :token_id";
-$countParams = [':token_id' => $tokenId];
-if (!empty($filterIp)) { $countSql .= " AND ip_address LIKE :ip_address_count"; $countParams[':ip_address_count'] = "%" . $filterIp . "%"; }
-if (!empty($urlDateFrom) && DateTime::createFromFormat('Y-m-d', $urlDateFrom) !== false) { $countSql .= " AND DATE(timestamp) >= :date_from_count"; $countParams[':date_from_count'] = $urlDateFrom; }
-if (!empty($urlDateTo) && DateTime::createFromFormat('Y-m-d', $urlDateTo) !== false) { $countSql .= " AND DATE(timestamp) <= :date_to_count"; $countParams[':date_to_count'] = $urlDateTo; }
-
+// Lapozás (count)
+$countSql = "SELECT COUNT(*) FROM activity_logs " . str_replace('SELECT * FROM activity_logs', '', $logSql);
+$countParams = $logParams;
 $totalLogsStmt = $db->prepare($countSql);
 $totalLogsStmt->execute($countParams);
 $totalLogsCount = $totalLogsStmt->fetchColumn();
-$totalPagesLogs = ceil($totalLogsCount / $itemsPerPageLogs);
-if ($totalPagesLogs == 0) $totalPagesLogs = 1;
+
+// Lapozás (számítások)
+$itemsPerPageLogs = (int)getAppSetting('items_per_page_logs', 50);
+$totalPagesLogs = $totalLogsCount > 0 ? ceil($totalLogsCount / $itemsPerPageLogs) : 1;
+$currentPageLogs = isset($_GET['log_page']) ? (int)$_GET['log_page'] : 1;
+if ($currentPageLogs < 1) $currentPageLogs = 1;
 if ($currentPageLogs > $totalPagesLogs) $currentPageLogs = $totalPagesLogs;
 $offsetLogs = ($currentPageLogs - 1) * $itemsPerPageLogs;
 
+// Végleges lekérdezés lapozással
 $logSql .= " ORDER BY timestamp DESC LIMIT :limit OFFSET :offset";
 $logParams[':limit'] = $itemsPerPageLogs;
 $logParams[':offset'] = $offsetLogs;
 
 $logStmt = $db->prepare($logSql);
-// Paraméterek bindolása a típusok explicit megadásával
-foreach ($logParams as $paramKey => $paramValue) {
-    if ($paramKey === ':limit' || $paramKey === ':offset' || $paramKey === ':token_id') {
-        $logStmt->bindValue($paramKey, $paramValue, PDO::PARAM_INT);
-    } else {
-        $logStmt->bindValue($paramKey, $paramValue);
-    }
+foreach ($logParams as $paramKey => &$paramValue) {
+    $logStmt->bindParam($paramKey, $paramValue, is_int($paramValue) ? PDO::PARAM_INT : PDO::PARAM_STR);
 }
 $logStmt->execute();
 $logs = $logStmt->fetchAll();
-// --- Aktivitási Napló Szűrési Logika Vége ---
 
 
-// Exportálás gomb
 $exportUrl = BASE_URL . 'admin/token_details.php?id=' . $token['id'] . '&action=export_json'
-             . (!empty($filterIp) ? '&filter_ip=' . urlencode($filterIp) : '')
-             . (!empty($urlDateFrom) ? '&filter_date_from=' . $urlDateFrom : '')
-             . (!empty($urlDateTo) ? '&filter_date_to=' . $urlDateTo : '');
+            . (!empty($filterIp) ? '&filter_ip=' . urlencode($filterIp) : '')
+            . (!empty($urlDateFrom) ? '&filter_date_from=' . $urlDateFrom : '')
+            . (!empty($urlDateTo) ? '&filter_date_to=' . $urlDateTo : '');
 
-if (isset($_GET['action']) && $_GET['action'] === 'export_json') {
-    // Export SQL-nek is tartalmaznia kell a szűrőket
-    $exportSql = "SELECT * FROM activity_logs WHERE token_id = :token_id";
-    $exportParams = [':token_id' => $tokenId];
-    if (!empty($filterIp)) { $exportSql .= " AND ip_address LIKE :ip_address"; $exportParams[':ip_address'] = "%" . $filterIp . "%"; }
-    if (!empty($urlDateFrom) && DateTime::createFromFormat('Y-m-d', $urlDateFrom) !== false) { $exportSql .= " AND DATE(timestamp) >= :date_from"; $exportParams[':date_from'] = $urlDateFrom; }
-    if (!empty($urlDateTo) && DateTime::createFromFormat('Y-m-d', $urlDateTo) !== false) { $exportSql .= " AND DATE(timestamp) <= :date_to"; $exportParams[':date_to'] = $urlDateTo; }
-    $exportSql .= " ORDER BY timestamp DESC";
-
-    $exportStmt = $db->prepare($exportSql);
-    $exportStmt->execute($exportParams);
-    $exportLogsData = $exportStmt->fetchAll();
-
-    header('Content-Type: application/json');
-    header('Content-Disposition: attachment; filename="token_'.escape($token['token_value']).'_logs_'.date('YmdHis').'.json"');
-    echo json_encode($exportLogsData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-    exit;
-}
+// === 3. LÉPÉS: HTML MEGJELENÍTÉS KEZDETE ===
+require_once __DIR__ . '/../includes/header.php';
 ?>
 <div class="content-header">
     <h1><i class="fas fa-tag"></i> <?php echo escape($pageTitle); ?> <small class="secondary-text">(<?php echo escape($token['token_value']); ?>)</small></h1>
@@ -169,7 +150,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_json') {
             </div>
             <button type="submit" class="btn btn-primary btn-block"><i class="fas fa-filter"></i> Szűrés & Frissítés</button>
         </form>
-    </div>
+    </div>  
 
     <div class="token-main-charts-area"> <?php // Jobb oldali fő grafikonok területe ?>
         <div class="dashboard-section" style="margin-top:0;"> <?php // margin-top:0, ha ez az első elem itt ?>
@@ -187,189 +168,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'export_json') {
     </div>
 </div>
 
-<h2 class="section-title" style="margin-top:30px;"><i class="fas fa-link"></i> Top Referrerek</h2>
-<div class="dashboard-section">
-    <div class="chart-container glass-effect" style="height: 300px; padding: 15px;">
-        <canvas id="tdTopReferrersChart"></canvas>
-    </div>
-</div>
+<?php>require_once __DIR__ . '/../includes/token_details_passive_content.php';?>
 
-<h2 class="section-title" style="margin-top:30px;"><i class="fas fa-map-marked-alt"></i> Földrajzi Adatok</h2>
-<div class="dashboard-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fas fa-globe-americas"></i> Top Országok</h3>
-        <div class="chart-container glass-effect" style="height: 300px; padding: 15px;">
-            <canvas id="tdCountryDistributionChart"></canvas>
-        </div>
-    </div>
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fas fa-city"></i> Top Városok</h3>
-        <div class="chart-container glass-effect" style="height: 300px; padding: 15px;">
-            <canvas id="tdCityDistributionChart"></canvas>
-        </div>
-    </div>
-     <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fas fa-network-wired"></i> Top ISP-k</h3>
-        <div class="chart-container glass-effect" style="height: 300px; padding: 15px;">
-            <canvas id="tdIspDistributionChart"></canvas>
-        </div>
-    </div>
-</div>
-
-<h2 class="section-title" style="margin-top:30px;"><i class="fas fa-microchip"></i> Technikai Részletek</h2>
-<div class="dashboard-grid" style="grid-template-columns: 1fr 1fr;"> <?php // Két oszlop ?>
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fas fa-calendar-day"></i> Megnyitások Hét Napjai Szerint</h3>
-        <div class="chart-container glass-effect" style="height: 280px; padding: 15px;">
-            <canvas id="tdDayOfWeekChart"></canvas>
-        </div>
-    </div>
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="far fa-clock"></i> Óránkénti Aktivitás (Elmúlt 24 óra)</h3>
-        <div class="chart-container glass-effect" style="height: 280px; padding: 15px;">
-            <canvas id="tdHourlyLast24hChart"></canvas>
-        </div>
-    </div>
-</div>
-
-<div class="dashboard-section" style="margin-top:20px;">
-    <h3 class="subsection-title"><i class="fas fa-map-pin"></i> Leggyakoribb IP Címek (Top 10)</h3>
-    <div class="table-container glass-effect" style="max-height: 300px; overflow-y: auto;" id="tdTopIpsContainer">
-        <p class="text-center text-muted" style="padding:20px;">Betöltés...</p>
-    </div>
-</div>
-
-<h2 class="section-title" style="margin-top:30px;"><i class="fas fa-cubes"></i> Összesített Statisztikák (Kiválasztott Időszakra)</h2>
-<div class="token-stats-cards-grid"> <?php // Most itt vannak a stat kártyák ?>
-    <div class="stat-card glass-effect">
-        <h3><i class="far fa-eye"></i> Összes Megnyitás</h3>
-        <p class="stat-value" id="tdTotalOpensVal">Betöltés...</p>
-        <small id="tdTotalOpensPeriod">Kiválasztott időszak</small>
-    </div>
-    <div class="stat-card glass-effect">
-        <h3><i class="fas fa-users"></i> Egyedi IP-k</h3>
-        <p class="stat-value" id="tdUniqueIpsVal">Betöltés...</p>
-        <small id="tdUniqueIpsPeriod">Kiválasztott időszak</small>
-    </div>
-     <div class="stat-card glass-effect">
-        <h3><i class="fas fa-user-friends"></i> Egyedi / Összes Arány</h3>
-        <p class="stat-value" id="tdUniqueRatioVal">Betöltés...</p>
-        <small id="tdUniqueRatioInfo">Arány</small>
-    </div>
-</div>
-
-
-
-<h2 class="section-title" style="margin-top:30px;"><i class="fas fa-chalkboard-teacher"></i> Látogatói Profil</h2>
-<div class="dashboard-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));">
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fab fa-firefox-browser"></i> Böngészők</h3>
-        <div class="chart-container-small glass-effect">
-            <canvas id="tdBrowserDistributionChart"></canvas>
-        </div>
-    </div>
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fas fa-desktop"></i> Operációs Rendszerek</h3>
-        <div class="chart-container-small glass-effect">
-            <canvas id="tdOsDistributionChart"></canvas>
-        </div>
-    </div>
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fas fa-mobile-alt"></i> Eszköztípusok</h3>
-        <div class="chart-container-small glass-effect">
-            <canvas id="tdDeviceTypeDistributionChart"></canvas>
-        </div>
-    </div>
-</div>
-<h2 class="section-title" style="margin-top:30px;"><i class="fas fa-calendar-alt"></i> Időbeli Elemzések Részletesen</h2>
-<div class="dashboard-grid" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fas fa-calendar-week"></i> Heti Megnyitások</h3>
-        <div class="chart-container glass-effect" style="height: 280px; padding: 15px;">
-            <canvas id="tdWeeklyOpensChart"></canvas>
-        </div>
-    </div>
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="far fa-calendar-alt"></i> Havi Megnyitások</h3>
-        <div class="chart-container glass-effect" style="height: 280px; padding: 15px;">
-            <canvas id="tdMonthlyOpensChart"></canvas>
-        </div>
-    </div>
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fas fa-calendar"></i> Megnyitások Hónap Napjai Szerint</h3>
-        <div class="chart-container glass-effect" style="height: 280px; padding: 15px;">
-            <canvas id="tdMonthDayOpensChart"></canvas>
-        </div>
-    </div>
-</div>
-
-<h2 class="section-title" style="margin-top:30px;"><i class="fas fa-cogs"></i> Látogatói Technológia Mélyebben</h2>
-<div class="dashboard-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fab fa-html5"></i> Böngésző Motorok</h3>
-        <div class="chart-container-small glass-effect">
-            <canvas id="tdBrowserEngineChart"></canvas>
-        </div>
-    </div>
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fas fa-mobile"></i> Mobil Eszköz Márkák</h3>
-        <div class="chart-container-small glass-effect">
-            <canvas id="tdMobileBrandChart"></canvas>
-        </div>
-    </div>
-</div>
-
-<h2 class="section-title" style="margin-top:30px;"><i class="fas fa-share-alt"></i> Forgalmi Források Részletesen</h2>
-<div class="dashboard-grid" style="grid-template-columns: 1fr 1fr;">
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fas fa-search"></i> Keresőmotorok Aránya</h3>
-        <div class="chart-container-small glass-effect">
-            <canvas id="tdSearchEngineReferrerChart"></canvas>
-        </div>
-    </div>
-    <div class="dashboard-section">
-        <h3 class="subsection-title"><i class="fas fa-users"></i> Közösségi Média Aránya</h3>
-        <div class="chart-container-small glass-effect">
-            <canvas id="tdSocialMediaReferrerChart"></canvas>
-        </div>
-    </div>
-</div>
-
-<h2 class="section-title" style="margin-top:30px;"><i class="fas fa-info-circle"></i> Kiegészítő Információk a Tokenről</h2>
-<div class="info-cards-extended-grid glass-effect" style="padding: var(--card-padding);">
-    <div class="info-item-extended">
-        <h4><i class="far fa-clock"></i> Token Életkora:</h4>
-        <p id="infoTokenAge">Betöltés...</p>
-    </div>
-    <div class="info-item-extended">
-        <h4><i class="fas fa-calendar-check"></i> Első Megnyitás:</h4>
-        <p id="infoFirstOpen">Betöltés...</p>
-    </div>
-    <div class="info-item-extended">
-        <h4><i class="fas fa-calendar-times"></i> Utolsó Megnyitás:</h4>
-        <p id="infoLastOpen">Betöltés...</p>
-    </div>
-    <div class="info-item-extended">
-        <h4><i class="fas fa-fire"></i> Legaktívabb Nap:</h4>
-        <p id="infoMostActiveDay">Betöltés...</p>
-    </div>
-    <div class="info-item-extended">
-        <h4><i class="fas fa-skull-crossbones"></i> Top IP Cím:</h4>
-        <p id="infoTopIp">Betöltés...</p>
-    </div>
-    <div class="info-item-extended">
-        <h4><i class="fas fa-globe"></i> Top Referrer Domain:</h4>
-        <p id="infoTopReferrer">Betöltés...</p>
-    </div>
-    <div class="info-item-extended">
-        <h4><i class="fas fa-calendar-day"></i> Aktív Napok Száma (Szűrt Időszakban):</h4>
-        <p id="infoActiveDaysInPeriod">Betöltés...</p>
-    </div>
-    <div class="info-item-extended" id="infoNoDataWarning" style="display:none; color: var(--color-warning);">
-        <h4><i class="fas fa-exclamation-triangle"></i> Figyelmeztetés:</h4>
-        <p>A kiválasztott dátumtartományban nincs rögzített aktivitás ehhez a tokenhez.</p>
-    </div>
-</div>
 <div class="dashboard-section" style="margin-top:30px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
         <h2 class="section-title" style="margin-bottom:0;"><i class="fas fa-list-alt"></i> Részletes Aktivitási Napló</h2>

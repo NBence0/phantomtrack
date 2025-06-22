@@ -30,6 +30,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errorMessage = "Érvénytelen e-mail cím formátum.";
         } elseif (strlen($password) < 6) {
             $errorMessage = "A jelszónak legalább 6 karakter hosszúnak kell lennie.";
+        } elseif (!isset($_POST['terms_agree']) || !isset($_POST['privacy_agree'])) { // <-- ÚJ ELLENŐRZÉS
+            $errorMessage = "A regisztrációhoz el kell fogadnod a feltételeket és a nyilatkozatot.";
         } else {
             // Ellenőrizzük, hogy a felhasználónév vagy email foglalt-e már
             $db = getDB();
@@ -97,6 +99,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <label for="confirm_password"><i class="fas fa-lock"></i> Jelszó megerősítése</label>
                     <input type="password" id="confirm_password" name="confirm_password" required>
                 </div>
+
+                <!-- EZ AZ ÚJ BLOKK: -->
+                <div class="form-group terms-group">
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="terms_agree" name="terms_agree" value="1" required>
+                        <label for="terms_agree">Elolvastam és elfogadom az <a href="<?php echo BASE_URL; ?>public/terms.php" target="_blank">Általános Szerződési Feltételeket</a>.</label>
+                    </div>
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="privacy_agree" name="privacy_agree" value="1" required>
+                        <label for="privacy_agree">Elolvastam és elfogadom az <a href="<?php echo BASE_URL; ?>public/privacy.php" target="_blank">Adatkezelési Nyilatkozatot</a>.</label>
+                    </div>
+                </div>
+
                 <button type="submit" class="btn btn-primary">Regisztráció</button>
             </form>
             <?php endif; ?>

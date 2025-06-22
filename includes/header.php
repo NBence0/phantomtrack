@@ -1,7 +1,7 @@
 <?php
-require_once __DIR__ . '/../config.php'; // Biztosítja, hogy a BASE_URL elérhető legyen
-require_once __DIR__ . '/auth.php';      // requireLogin itt hívható
-require_once __DIR__ . '/functions.php'; // escape() függvény
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/functions.php';
 ?>
 <!DOCTYPE html>
 <html lang="hu">
@@ -10,15 +10,17 @@ require_once __DIR__ . '/functions.php'; // escape() függvény
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo isset($pageTitle) ? escape($pageTitle) . ' - ' : ''; ?>PhantomTrack</title>
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/style.css">
-    <!-- FontAwesome CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
 </head>
-<body>
-    <div class="page-container">
-        <?php if (isLoggedIn()): // Navigáció csak bejelentkezett felhasználóknak ?>
+<body class="admin-layout"> <!-- Osztály az admin nézethez -->
+    <div class="page-wrapper"> <!-- Ez a fő flex konténer -->
+        <?php if (isLoggedIn()): ?>
             <?php include __DIR__ . '/nav.php'; ?>
+            <button id="mobileMenuToggle" class="sidebar-toggle" aria-label="Toggle navigation" aria-expanded="false">
+                <i class="fas fa-bars"></i><i class="fas fa-times"></i>
+            </button>
         <?php endif; ?>
         <main class="main-content">
             <?php if (isset($_SESSION['flash_message'])): ?>
