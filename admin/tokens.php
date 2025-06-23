@@ -178,6 +178,7 @@ include __DIR__ . '/../includes/tokens_modals.php';
                                 <i class="fas fa-trash-alt"></i>
                             </a>
                             <button onclick="openEditTokenModal(<?php echo $token['id']; ?>)" class="btn btn-small btn-secondary" title="Szerkesztés"><i class="fas fa-edit"></i></button>
+                            <button onclick="openGetCodeModal('<?php echo escape($token['token_value']); ?>')" class="btn btn-small btn-info" title="Kód Snippetek"><i class="fas fa-code"></i></button>
                         </div>
                     </td>
                 </tr>
@@ -230,13 +231,10 @@ include __DIR__ . '/../includes/tokens_modals.php';
 
 
 <script>
-    const AppConfig = {
-        // Az AJAX kérések végpontja
+    const PageConfig = { // <- Átnevezve!
         ajaxUrl: '<?php echo BASE_URL . "admin/ajax_actions.php"; ?>',
-        
-        // A felhasználó összes elérhető kategóriája
         allUserCategories: <?php echo json_encode($availableCategories); ?>,
-
+        baseUrl: '<?php echo BASE_URL; ?>',
     };
 </script>
 <script src="<?php echo BASE_URL . 'assets/js/tokens.js'; ?>"></script>

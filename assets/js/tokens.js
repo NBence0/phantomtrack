@@ -233,3 +233,71 @@ document.addEventListener('DOMContentLoaded', function() {
         addNewCategoryBtn.addEventListener('click', handleAddNewCategory);
     }
 });
+
+
+
+// ===================================================================
+// IV. TOKEN másolása gomb
+// ===================================================================
+
+function openGetCodeModal(tokenValue) {
+    // PageConfig használata, ahogy korábban megbeszéltük
+    const pixelUrl = `${PageConfig.baseUrl}pixel.php?token=${tokenValue}`;
+    
+    // A kódelemek feltöltése
+    document.getElementById('snippet-html').textContent = `<img src="${pixelUrl}" alt="pixel" width="1" height="1" border="0">`;
+    document.getElementById('snippet-markdown').textContent = `![pixel](${pixelUrl})`;
+    document.getElementById('snippet-bbcode').textContent = `[img]${pixelUrl}[/img]`;
+    
+    // Prism API hívása a frissen beillesztett kód highlightolására
+    Prism.highlightAllUnder(document.getElementById('getCodeModal'));
+    
+    // Modális ablak megjelenítése
+    document.getElementById('getCodeModal').style.display = 'block';
+}
+
+// A copySnippet függvényt meghagyhatjuk más célokra, de innen már nem hívjuk.
+
+function copySnippet(elementId) {
+    const codeElement = document.getElementById(elementId);
+    const textToCopy = codeElement.textContent;
+
+    // Ellenőrizzük, hogy a biztonságos Clipboard API elérhető-e
+    if (navigator.clipboard && window.isSecureContext) {
+        // Ha igen, ezt a modern, aszinkron módszert használjuk
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            showDynamicMessage('Kód vágólapra másolva!', 'success');
+        }).catch(err => {
+            console.error('Hiba a vágólapra másolás során (Clipboard API): ', err);
+            showDynamicMessage('Hiba a másolás során.', 'error');
+        });
+    } else {
+        // Ha nem (pl. HTTP-n vagy régebbi böngészőben), a régi, szinkron módszert használjuk
+        const textArea = document.createElement('textarea');
+        textArea.value = textToCopy;
+        
+        // Elrejtjük a textarea-t a képernyőről
+        textArea.style.position = 'fixed';
+        textArea.style.top = '0';
+        textArea.style.left = '0';
+        textArea.style.opacity = '0';
+
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        try {
+            const successful = document.execCommand('copy');
+            if (successful) {
+                showDynamicMessage('Kód vágólapra másolva!', 'success');
+            } else {
+                showDynamicMessage('A másolás nem sikerült.', 'error');
+            }
+        } catch (err) {
+            console.error('Hiba a vágólapra másolás során (execCommand): ', err);
+            showDynamicMessage('Hiba a másolás során.', 'error');
+        }
+
+        document.body.removeChild(textArea);
+    }
+}

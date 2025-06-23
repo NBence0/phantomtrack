@@ -42,6 +42,7 @@
  *
  *  5.  KÜLSŐ KÖNYVTÁRAK STÍLUSAI
  *      - Flatpickr (Dátumválasztó)
+ *      - Prism.js (Kód kiemelő)
  *
  *  6.  RESZPONZÍV STÍLUSOK (@media)
  *      - Tablet és Mobil nézet (992px alatt)
@@ -1083,6 +1084,59 @@ td:last-child { white-space: nowrap; text-align: right; }
 .flatpickr-day.endRange { background: var(--accent-primary); border-color: var(--accent-primary); color: #0f0f23; box-shadow: 0 0 10px rgba(0, 212, 255, 0.5); }
 .flatpickr-day.inRange { background: rgba(0, 212, 255, 0.2); border-color: transparent; box-shadow: none; }
 
+/**
+ * Prism.js (Kód kiemelő)
+ * -------------------------------------------------------------------
+ * Felülírások és kiegészítések a dizájnhoz.
+ */
+.code-snippets-container {
+    margin-top: 20px;
+}
+.code-snippets-container h4 {
+    color: var(--accent-secondary);
+    margin-top: 15px;
+    margin-bottom: 5px;
+    font-size: 1.1em;
+}
+
+/* Alap PRE stílus a tördeléshez és a görgetéshez */
+pre[class*="language-"] {
+    padding: 1em;
+    margin: .5em 0;
+    overflow: auto; /* Vízszintes görgetősáv, ha mégis kellene */
+    border-radius: var(--border-radius);
+    
+    /* A KULCS a sorok tördeléséhez, hogy ne lógjon ki */
+    white-space: pre-wrap;   /* Tördeli a sorokat, ha szükséges */
+    word-wrap: break-word; /* Tördeli a hosszú szavakat is */
+}
+
+/* Az Okaidia téma finomhangolása a mi dizájnunkhoz */
+pre[class*="language-"],
+code[class*="language-"] {
+    background: rgba(0,0,0,0.3);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.9em;
+}
+
+/* Prism Toolbar gombok stílusozása */
+div.prism-toolbar {
+    margin: .5em 0; /* Igazítás a pre-hez */
+}
+div.prism-toolbar .toolbar-item a,
+div.prism-toolbar .toolbar-item button {
+    background: var(--glass-bg-hover);
+    color: var(--text-secondary);
+    border: 1px solid var(--glass-border);
+    border-radius: 5px;
+    padding: 5px 10px;
+    transition: all 0.2s ease;
+}
+div.prism-toolbar .toolbar-item a:hover,
+div.prism-toolbar .toolbar-item button:hover {
+    background-color: var(--accent-primary);
+    color: #0f0f23;
+}
 
 /* ===================================================================
    6. RESZPONZÍV STÍLUSOK (@media)

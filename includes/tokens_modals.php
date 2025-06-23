@@ -95,3 +95,27 @@
         </form>
     </div>
 </div>
+
+<!-- Get Code Modal -->
+<div id="getCodeModal" class="modal">
+    <div class="modal-content glass-effect">
+        <span class="close-btn" onclick="document.getElementById('getCodeModal').style.display='none'">×</span>
+        <h2>Pixel Kód Snippetek</h2>
+        <p>Másold ki és illeszd be a megfelelő kódot a tartalmadba.</p>
+        
+        <div class="code-snippets-container">
+            <!-- HTML Snippet -->
+            <h4>HTML (Weboldalakhoz, E-mailekhez)</h4>
+            <!-- A pre tagre is kell class a toolbarhoz -->
+            <pre class="language-html"><code id="snippet-html" class="language-html"></code></pre>
+
+            <!-- Markdown Snippet -->
+            <h4>Markdown (pl. GitHub README.md)</h4>
+            <pre class="language-markdown"><code id="snippet-markdown" class="language-markdown"></code></pre>
+            
+            <!-- BBCode Snippet -->
+            <h4>BBCode (Fórumokhoz)</h4>
+            <pre class="language-bbcode"><code id="snippet-bbcode" class="language-bbcode"></code></pre>
+        </div>
+    </div>
+</div>
