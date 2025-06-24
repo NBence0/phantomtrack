@@ -644,6 +644,7 @@ body {
     border-radius: var(--border-radius);
     cursor: pointer;
     transition: all 0.2s ease-in-out;
+    margin-left: 5px; /* Kis távolság a bal oldali elemtől */
 }
 .select-trigger:hover {
     border-color: var(--accent-primary);
@@ -705,6 +706,24 @@ body {
 /* Görgetősáv a legördülőhöz (diszkrétebb) */
 .custom-options::-webkit-scrollbar { width: 8px; }
 .custom-options::-webkit-scrollbar-thumb { border-width: 2px; }
+
+/* Műveleti menü kiegészítései */
+.action-menu .custom-options {
+    right: 0;   /* Jobbra igazítja a menüt a gombhoz */
+    left: auto; /* Kikapcsolja a balra igazítást */
+    width: max-content; /* A menü olyan széles lesz, mint a leghosszabb elem */
+    min-width: 100%;    /* De legalább olyan széles, mint a gomb */
+}
+
+.action-menu .select-trigger {
+    width: 100%; /* Kitölti a wrapper szélességét */
+}
+
+.action-menu .custom-option {
+    display: flex;
+    align-items: center;
+    gap: 10px; /* Térköz az ikon és a szöveg között */
+}
 
 /**
  * Kártyák és Szekciók

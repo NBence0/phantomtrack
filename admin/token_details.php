@@ -35,31 +35,6 @@ $filterIp = trim($_GET['filter_ip'] ?? '');
 $urlDateFrom = trim($_GET['filter_date_from'] ?? '');
 $urlDateTo = trim($_GET['filter_date_to'] ?? '');
 
-// --- EXPORTÁLÁSI LOGIKA ---
-if (isset($_GET['action']) && $_GET['action'] === 'export_json') {
-    
-    $exportSql = "SELECT * FROM activity_logs WHERE token_id = :token_id";
-    $exportParams = [':token_id' => $tokenId];
-
-    if (!empty($filterIp)) { $exportSql .= " AND ip_address LIKE :ip_address"; $exportParams[':ip_address'] = "%" . $filterIp . "%"; }
-    if (!empty($urlDateFrom) && DateTime::createFromFormat('Y-m-d', $urlDateFrom)) { $exportSql .= " AND DATE(timestamp) >= :date_from"; $exportParams[':date_from'] = $urlDateFrom; }
-    if (!empty($urlDateTo) && DateTime::createFromFormat('Y-m-d', $urlDateTo)) { $exportSql .= " AND DATE(timestamp) <= :date_to"; $exportParams[':date_to'] = $urlDateTo; }
-    
-    $exportSql .= " ORDER BY timestamp DESC";
-
-    $exportStmt = $db->prepare($exportSql);
-    $exportStmt->execute($exportParams);
-    $exportLogsData = $exportStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // Fejlécek beállítása a JSON letöltéshez
-    header('Content-Type: application/json; charset=utf-8');
-    header('Content-Disposition: attachment; filename="token_'.preg_replace('/[^a-zA-Z0-9-]/', '_', $token['token_value']).'_logs_'.date('YmdHis').'.json"');
-    
-    echo json_encode($exportLogsData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-    exit; // A szkript futása itt leáll, nincs HTML kimenet
-}
-
-
 // === 2. LÉPÉS: ADATOK LEKÉRDEZÉSE A MEGJELENÍTÉSHEZ ===
 // Ha a kód idáig eljut, az azt jelenti, hogy a normál oldalt kell megjeleníteni.
 
@@ -115,8 +90,30 @@ require_once __DIR__ . '/../includes/header.php';
 ?>
 <div class="content-header">
     <h1><i class="fas fa-tag"></i> <?php echo escape($pageTitle); ?> <small class="secondary-text">(<?php echo escape($token['token_value']); ?>)</small></h1>
-    <div>
-        <a href="<?php echo $exportUrl; // PHP-ban definiálva ?>" class="btn btn-secondary"><i class="fas fa-download"></i> Napló Exportálása (JSON)</a>
+    <div style="display: flex; gap: 10px;">
+        <!-- ÚJ EXPORT MENÜ -->
+        <div id="exportActionMenu" class="custom-select-wrapper action-menu">
+            <!-- A trigger most egy gomb -->
+            <button class="btn btn-secondary select-trigger">
+                <i class="fas fa-download"></i> Exportálás 
+            </button>
+            <!-- A lenyíló opciók -->
+            <div class="custom-options">
+                <span class="custom-option" data-action="export_json">
+                    <i class="fas fa-file-code"></i> Exportálás JSON-be
+                </span>
+                <span class="custom-option" data-action="export_csv">
+                    <i class="fas fa-file-csv"></i> Exportálás CSV-be
+                </span>
+                <span class="custom-option" data-action="export_xlsx">
+                    <i class="fas fa-file-excel"></i> Exportálás XLSX-be
+                </span>
+                <span class="custom-option" data-action="export_pdf">
+                    <i class="fas fa-file-pdf"></i> Jelentés generálása (PDF)
+                </span>
+            </div>
+        </div>
+
         <a href="<?php echo BASE_URL . 'admin/tokens.php'; ?>" class="btn btn-info"><i class="fas fa-arrow-left"></i> Vissza a Tokenekhez</a>
     </div>
 </div>
@@ -168,7 +165,7 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<?php>require_once __DIR__ . '/../includes/token_details_passive_content.php';?>
+<?php require_once __DIR__ . '/../includes/token_details_passive_content.php';?>
 
 <div class="dashboard-section" style="margin-top:30px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
@@ -288,6 +285,7 @@ require_once __DIR__ . '/../includes/header.php';
     const tokenCreatedAt = new Date('<?php echo $token['created_at']; ?>');
     const ajaxBaseUrl = '<?php echo BASE_URL; ?>admin/ajax_chart_data.php';
     const currentTokenId = <?php echo $tokenIdForJs; ?>;
+    const handlerUrl = '<?php echo BASE_URL; ?>admin/export_handler.php';
 </script>
 <script src="<?php echo BASE_URL . 'assets/js/token_details.js'; ?>"></script>
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>  

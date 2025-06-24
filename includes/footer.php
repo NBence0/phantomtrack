@@ -1,4 +1,16 @@
-        </main> <!-- .main-content -->
+<!-- Exportálás Folyamatban Modális Ablak -->
+<div id="exportInProgressModal" class="modal" style="display: none;">
+    <div class="modal-content glass-effect" style="max-width: 400px; text-align: center;">
+        <h2 style="color: var(--accent-primary);">Exportálás folyamatban...</h2>
+        <p style="color: var(--text-secondary); margin-top: 15px;">Kérjük, várjon, amíg a rendszer előkészíti a fájlt a letöltésre. Ez nagyobb adatmennyiség esetén több másodpercet is igénybe vehet.</p>
+        <div class="spinner-container" style="margin-top: 25px; font-size: 3em; color: var(--accent-secondary);">
+            <i class="fas fa-spinner fa-spin"></i>
+        </div>
+    </div>
+</div>
+
+
+</main> <!-- .main-content -->
     </div> <!-- .page-wrapper -->
 
     <footer class="site-footer glass-effect">
