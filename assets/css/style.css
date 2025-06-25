@@ -1005,6 +1005,9 @@ td:last-child { white-space: nowrap; text-align: right; }
     align-content: start;
 }
 
+.token-info-and-actions{
+    padding: 15px;
+}
 /**
  * Pulse Feed
  * -------------------------------------------------------------------
