@@ -31,6 +31,7 @@
  *      - Modális Ablakok (.modal)
  *      - Üzenetek (.message)
  *      - Lapozás (Pagination)
+ *      - Kategória nevek és ikonok
  *
  *  4.  OLDALSPECIFIKUS STÍLUSOK
  *      - Login Oldal
@@ -227,6 +228,9 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     position: relative;
+    display: flex; /* Flexbox a belső elemek igazításához */
+    align-items: center; /* Függőleges középre igazítás */
+    gap: 12px; /* Térköz az ikon és a szöveg között */
 }
 .nav-menu li a i {
     margin-right: 12px;
@@ -240,6 +244,32 @@ body {
     font-weight: 500;
 }
 
+.nav-menu li a i {
+    margin-right: 0; /* A gap már kezeli a térközt */
+    flex-shrink: 0; /* Az ikon ne zsugorodjon össze */
+}
+
+.nav-menu li a span {
+    /* Ez az új span a szövegnek */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-grow: 1; /* A szöveg töltse ki a maradék helyet */
+}
+
+.sidebar-footer .btn {
+    width: 100%;
+    justify-content: center;
+}
+.sidebar-footer .btn i {
+    margin-right: 8px; /* Külön kell kezelni a gombon belüli ikont */
+}
+.sidebar-footer .btn span {
+    /* Ha a gombban is használunk spant */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 /* Almenü */
 .nav-menu li.has-submenu > a::after {
     content: "\f078";
@@ -937,6 +967,32 @@ td:last-child { white-space: nowrap; text-align: right; }
     padding: 0 5px;
     color: var(--text-secondary);
 }
+/**
+ * kategória nevek és ikonok
+ * -------------------------------------------------------------------
+ * A kategória nevek és ikonok stílusai, pl. a tokeneknél.
+ */
+.category-tag {
+    display: inline-block;
+    font-size: 0.8em;
+    padding: 3px 8px;
+    background-color: rgba(78, 205, 196, 0.2); /* --accent-secondary, de áttetszőbb */
+    color: var(--accent-secondary);
+    border-radius: 12px;
+    margin-left: 8px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+.category-tag i {
+    margin-right: 4px;
+}
+.category-tag:hover {
+    background-color: var(--accent-secondary);
+    color: var(--background-gradient);
+    transform: translateY(-1px);
+}
 
 /* ===================================================================
    4. OLDALSPECIFIKUS STÍLUSOK
@@ -956,6 +1012,7 @@ td:last-child { white-space: nowrap; text-align: right; }
 .login-container {
     max-width: 450px;
     width: 90%;
+    margin: auto;
 }
 .login-box {
     padding: 40px 30px;

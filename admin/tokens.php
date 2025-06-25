@@ -82,14 +82,30 @@ $categoriesStmt = $db->prepare("SELECT id, name FROM token_categories WHERE user
 $categoriesStmt->execute([':user_id' => $currentUserId]);
 $availableCategories = $categoriesStmt->fetchAll();
 
-// Szűrési és lapozási logika
+// --- SZŰRÉSI ÉS LAPOZÁSI LOGIKA KIEGÉSZÍTÉSE ---
 $filterCategoryId = isset($_GET['category_id']) ? (int)$_GET['category_id'] : null;
-$queryParams = [':user_id' => $currentUserId];
-if ($filterCategoryId) {
-    $queryParams[':category_id'] = $filterCategoryId;
-}
-$sqlWhere = "WHERE t.user_id = :user_id" . ($filterCategoryId ? " AND t.category_id = :category_id" : "");
 
+// Az SQL feltétel és a paraméterek dinamikus összeállítása
+$sqlWhereParts = ["t.user_id = :user_id"];
+$queryParams = [':user_id' => $currentUserId];
+
+if ($filterCategoryId !== null) {
+    $sqlWhereParts[] = "t.category_id = :category_id";
+    $queryParams[':category_id'] = $filterCategoryId;
+    // Címsor frissítése a kategória nevével
+    // Ehhez le kell kérdeznünk a kategória nevét az ID alapján
+    $catNameStmt = $db->prepare("SELECT name FROM token_categories WHERE id = :id AND user_id = :user_id");
+    $catNameStmt->execute([':id' => $filterCategoryId, ':user_id' => $currentUserId]);
+    $categoryName = $catNameStmt->fetchColumn();
+    if ($categoryName) {
+        $pageTitle .= " (" . escape($categoryName) . ")";
+    }
+}
+
+$sqlWhere = "WHERE " . implode(" AND ", $sqlWhereParts);
+
+// ... (A lapozás és a lekérdezés többi része ugyanígy használja az $sqlWhere-t és a $queryParams-ot, ahogy a régi kód is)
+// FONTOS: a `totalTokensStmt` és a `tokens` lekérdező `stmt` is az új, dinamikus $queryParams tömbbel kell, hogy fusson.
 $totalTokensStmt = $db->prepare("SELECT COUNT(t.id) FROM tokens t " . $sqlWhere);
 $totalTokensStmt->execute($queryParams);
 $totalTokens = $totalTokensStmt->fetchColumn();
@@ -103,12 +119,23 @@ if ($currentPage > $totalPages) $currentPage = $totalPages;
 $offset = ($currentPage - 1) * $itemsPerPage;
 
 // Végleges lekérdezés lapozással
-$sqlQuery = "SELECT t.id, t.token_value, t.name, t.description, t.is_active, t.created_at, tc.name as category_name FROM tokens t LEFT JOIN token_categories tc ON t.category_id = tc.id " . $sqlWhere . " ORDER BY t.created_at DESC LIMIT :limit OFFSET :offset";
+$sqlQuery = "SELECT 
+                t.id, t.token_value, t.name, t.description, t.is_active, t.created_at, 
+                t.category_id AS token_category_link_id,  -- Ezt használjuk a linkhez, a neve egyedi
+                tc.name as category_name 
+             FROM 
+                tokens t 
+             LEFT JOIN 
+                token_categories tc ON t.category_id = tc.id 
+             " . $sqlWhere . " 
+             ORDER BY 
+                t.created_at DESC 
+             LIMIT :limit OFFSET :offset";
+
 $stmt = $db->prepare($sqlQuery);
 
-// Paraméterkötés a queryParams tömbből
 foreach ($queryParams as $paramName => &$paramValue) {
-    $stmt->bindParam($paramName, $paramValue);
+    $stmt->bindParam($paramName, $paramValue, is_int($paramValue) ? PDO::PARAM_INT : PDO::PARAM_STR);
 }
 $stmt->bindParam(':limit', $itemsPerPage, PDO::PARAM_INT);
 $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
@@ -149,7 +176,22 @@ include __DIR__ . '/../includes/tokens_modals.php';
                 <?php foreach ($tokens as $token): ?>
                 <tr>
                     <td data-label="Név (Kategória)">
-                        <a href="<?php echo BASE_URL . 'admin/token_details.php?id=' . $token['id']; ?>"><?php echo escape($token['name']); ?></a>
+                        <a href="<?php echo BASE_URL . 'admin/token_details.php?id=' . $token['id']; ?>">
+                            <?php echo escape($token['name']); ?>
+                        </a>
+
+                        <?php 
+                        // JAVÍTÁS:
+                        // Csak azt ellenőrizzük, hogy a `category_name` nem üres-e.
+                        // Mivel a `LEFT JOIN` NULL-t ad vissza, ha nincs egyezés, ez a tökéletes feltétel.
+                        if (isset($token['category_name']) && $token['category_name'] !== null): 
+                        ?>
+                            <a href="?category_id=<?php echo (int)$token['token_category_link_id']; ?>" 
+                            class="category-tag" 
+                            title="Szűrés erre a kategóriára: <?php echo escape($token['category_name']); ?>">
+                                <i class="fas fa-tag"></i> <?php echo escape($token['category_name']); ?>
+                            </a>
+                        <?php endif; ?>
                     </td>
                     <td data-label="Pixel URL" class="token-value-cell">
                         <input type="text" value="<?php echo BASE_URL . 'pixel.php?token=' . escape($token['token_value']); ?>" readonly class="pixel-url-input">
