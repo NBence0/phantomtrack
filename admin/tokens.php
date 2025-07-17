@@ -73,6 +73,35 @@ if (isset($_GET['action'])) {
     }
 }
 
+    // *** ÚJ BLOKK: TOKEN TÖRLÉSE ***
+    if ($_GET['action'] === 'delete_token' && $tokenId > 0) {
+        // 1. Ellenőrizzük, hogy a token a felhasználóé-e
+        $checkStmt = $db->prepare("SELECT id FROM tokens WHERE id = :id AND user_id = :user_id");
+        $checkStmt->execute([':id' => $tokenId, ':user_id' => $currentUserId]);
+        
+        if ($checkStmt->fetch()) {
+            // 2. Töröljük a tokent. Az ON DELETE CASCADE miatt a kapcsolódó naplók is törlődni fognak.
+            // (Ellenőrizzük a `database.sql`-t, hogy a foreign key tényleg CASCADE-ra van-e állítva!)
+            // Igen, a beküldött `database.sql` alapján ez így van:
+            // ADD CONSTRAINT `activity_logs_ibfk_1` FOREIGN KEY (`token_id`) REFERENCES `tokens` (`id`) ON DELETE CASCADE;
+            $deleteStmt = $db->prepare("DELETE FROM tokens WHERE id = :id AND user_id = :user_id");
+            if ($deleteStmt->execute([':id' => $tokenId, ':user_id' => $currentUserId])) {
+                $_SESSION['flash_message'] = "A token és a hozzá tartozó összes naplóbejegyzés sikeresen törölve.";
+                $_SESSION['flash_message_type'] = "success";
+            } else {
+                 $_SESSION['flash_message'] = "Hiba történt a törlés során.";
+                 $_SESSION['flash_message_type'] = "error";
+            }
+        } else {
+            $_SESSION['flash_message'] = "Nincs jogosultságod a token törléséhez, vagy az nem létezik.";
+            $_SESSION['flash_message_type'] = "error";
+        }
+        
+        // 3. Átirányítás a token lista oldalra
+        $redirectUrl = BASE_URL . 'admin/tokens.php' . (isset($_GET['category_id']) ? '?category_id='.(int)$_GET['category_id'] : '');
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
 
 // === 2. LÉPÉS: ADATOK LEKÉRDEZÉSE A MEGJELENÍTÉSHEZ ===
 $pageTitle = "Token Menedzsment";

@@ -7,7 +7,7 @@ define('DB_USER', 'root'); // Változtasd meg éles környezetben!
 define('DB_PASS', '');     // Változtasd meg éles környezetben!
 
 // Alkalmazás URL (fontos a helyes működéshez, / jellel a végén)
-define('BASE_URL', 'http://100.118.0.19/log/v3/phantomtrack/'); // Változtasd meg!
+define('BASE_URL', 'http://localhost:81/phantomtrack/'); // Változtasd meg!
 
 // Alapértelmezett értékek
 define('DEFAULT_ITEMS_PER_PAGE', 10);

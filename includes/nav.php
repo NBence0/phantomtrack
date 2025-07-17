@@ -41,7 +41,7 @@ if (function_exists('getCurrentUserId') && getCurrentUserId()) {
             <a href="#" title="Trackerek és Fájlbekérők"><i class="fas fa-satellite-dish"></i><span>Trackerek</span></a>
             <ul class="submenu">
                 <li <?php if ($current_page == 'tokens.php') echo 'class="active"'; ?>>
-                    <a href="<?php echo BASE_URL; ?>admin/tokens.php" title="Követő Pixelek"><i class="fas fa-crosshairs"></i><span>Pixel Követők</span></a>
+                    <a href="<?php echo BASE_URL; ?>admin/tokens.php" title="Követő Pixelek"><i class="fas fa-crosshairs"></i><span>Tokenek</span></a>
                 </li>
                 <li <?php if ($current_page == 'file_requests.php') echo 'class="active"'; ?>>
                     <a href="<?php echo BASE_URL; ?>admin/file_requests.php" title="Egyszeri Fájlbekérő Linkek"><i class="fas fa-file-import"></i><span>Egyszeri Bekérők</span></a>

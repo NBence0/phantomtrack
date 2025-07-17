@@ -1,83 +1,95 @@
 <?php
+// Hely: /pixel.php
+
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/functions.php';
 
 $tokenValue = $_GET['token'] ?? null;
 
+// Gyors kilépés, ha nincs token, vagy érvénytelen
 if (!$tokenValue) {
-    // Nincs token, ne csináljunk semmit, vagy adjunk 400-as hibát
     http_response_code(400);
     exit;
 }
 
 $db = getDB();
-$stmt = $db->prepare("SELECT id, is_active FROM tokens WHERE token_value = :token_value AND user_id IS NOT NULL"); // user_id IS NOT NULL, hogy csak admin által létrehozott legyen
-$stmt->bindParam(':token_value', $tokenValue);
-$stmt->execute();
+$stmt = $db->prepare("SELECT id, is_active FROM tokens WHERE token_value = :token_value AND user_id IS NOT NULL");
+$stmt->execute([':token_value' => $tokenValue]);
 $token = $stmt->fetch();
 
+// --- 1. AZONNALI VÁLASZ ---
+// Még mielőtt bármi lassú műveletbe kezdenénk, kiadjuk a pixelt.
 
-if ($token && $token['is_active']) {
+// HTTP fejlécek beállítása
+header('Content-Type: image/gif');
+header('Cache-Control: no-cache, no-store, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
+
+// A 1x1 átlátszó GIF kiadása
+echo base64_decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
+
+// --- 2. HÁTTÉRBEN FUTÓ FELDOLGOZÁS ---
+
+// Ha létezik a fastcgi_finish_request() függvény (PHP-FPM használata esetén),
+// akkor elküldjük a választ, és csak utána folytatjuk a futást.
+if (function_exists('fastcgi_finish_request')) {
+    fastcgi_finish_request();
+}
+
+// Ha a token inaktív vagy nem létezik, itt álljunk meg.
+if (!$token || !$token['is_active']) {
+    exit;
+}
+
+// Most, hogy a felhasználó már megkapta a választ, jöhet a lassú feldolgozás.
+// A futási idő limitjét megnöveljük, hogy a lassú műveleteknek legyen idejük lefutni.
+set_time_limit(60); 
+
+try {
+    // Adatok összegyűjtése (a logika nem változik)
     $ipAddress = getIpAddress();
     $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'N/A';
     $referrer = $_SERVER['HTTP_REFERER'] ?? 'N/A';
 
-    // 2. Matomo Device Detector használata
     $uaDetails = getDetailedUserAgentInfo($userAgent);
+    $geoDetails = getGeolocationFromIp($ipAddress);
 
-    // 3. IP Geolokáció (ezt a következő pontban implementáljuk)
-    $geoDetails = getGeolocationFromIp($ipAddress); // Ezt a függvényt még létre kell hozni
+    // Adatbázisba írás (a logika nem változik)
+    $logStmt = $db->prepare("
+        INSERT INTO activity_logs 
+        (token_id, ip_address, user_agent, referrer, 
+         browser_name, browser_version, os_name, os_version, 
+         device_type, device_brand, device_model,
+         country_code, city_name, isp, timestamp) 
+        VALUES (:token_id, :ip_address, :user_agent, :referrer, 
+         :browser_name, :browser_version, :os_name, :os_version,
+         :device_type, :device_brand, :device_model,
+         :country_code, :city_name, :isp, NOW())
+    ");
 
-    try {
-        $logStmt = $db->prepare("
-            INSERT INTO activity_logs 
-            (token_id, ip_address, user_agent, referrer, 
-             browser_name, browser_version, os_name, os_version, 
-             device_type, device_brand, device_model,
-             country_code, city_name, isp, timestamp) 
-            VALUES (:token_id, :ip_address, :user_agent, :referrer, 
-             :browser_name, :browser_version, :os_name, :os_version,
-             :device_type, :device_brand, :device_model,
-             :country_code, :city_name, :isp, NOW())
-        ");
-        $logStmt->bindParam(':token_id', $token['id']);
-        $logStmt->bindParam(':ip_address', $ipAddress);
-        $logStmt->bindParam(':user_agent', $userAgent); // Eredeti UA string
-        $logStmt->bindParam(':referrer', $referrer);
-        
-        // Matomo Device Detector adatok
-        $logStmt->bindParam(':browser_name', $uaDetails['client_name']);
-        $logStmt->bindParam(':browser_version', $uaDetails['client_version']);
-        $logStmt->bindParam(':os_name', $uaDetails['os_name']);
-        $logStmt->bindParam(':os_version', $uaDetails['os_version']);
-        $logStmt->bindParam(':device_type', $uaDetails['device_type']);
-        $logStmt->bindParam(':device_brand', $uaDetails['device_brand']);
-        $logStmt->bindParam(':device_model', $uaDetails['device_model']);
+    $logStmt->execute([
+        ':token_id'         => $token['id'],
+        ':ip_address'       => $ipAddress,
+        ':user_agent'       => $userAgent,
+        ':referrer'         => $referrer,
+        ':browser_name'     => $uaDetails['client_name'],
+        ':browser_version'  => $uaDetails['client_version'],
+        ':os_name'          => $uaDetails['os_name'],
+        ':os_version'       => $uaDetails['os_version'],
+        ':device_type'      => $uaDetails['device_type'],
+        ':device_brand'     => $uaDetails['device_brand'],
+        ':device_model'     => $uaDetails['device_model'],
+        ':country_code'     => $geoDetails['country_code'],
+        ':city_name'        => $geoDetails['city_name'],
+        ':isp'              => $geoDetails['isp']
+    ]);
 
-        // Geolokációs adatok
-        $logStmt->bindParam(':country_code', $geoDetails['country_code']);
-        $logStmt->bindParam(':city_name', $geoDetails['city_name']);
-        $logStmt->bindParam(':isp', $geoDetails['isp']);
-        
-        $logStmt->execute();
-    } catch (PDOException $e) {
-        error_log("Pixel logging error: " . $e->getMessage());
-    }
-} elseif ($token && !$token['is_active']) {
-    // Token létezik, de inaktív. Logolhatnánk ezt is külön, ha kell.
-    // Most nem csinálunk semmit, csak kiadjuk a pixelt.
-} else {
-    // Ismeretlen token. Logolhatnánk ezt is.
-    // Most nem csináljunk semmit, csak kiadjuk a pixelt, hogy ne tűnjön fel a hiba.
+} catch (Exception $e) {
+    // Hiba esetén naplózzuk a háttérben. A felhasználó erről már nem szerez tudomást.
+    error_log("PhantomTrack pixel.php error: " . $e->getMessage());
 }
 
-// 1x1 átlátszó GIF pixel küldése
-header('Content-Type: image/gif');
-header('Cache-Control: no-cache, no-store, must-revalidate');
-header('Pragma: no-cache');
-header('Expires: 0');
-// R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7 (base64 kódolt 1x1 átlátszó GIF)
-echo base64_decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
-exit;
+exit; // Biztos, ami biztos.
 ?>
