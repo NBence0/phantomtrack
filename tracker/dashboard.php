@@ -286,7 +286,7 @@ $latestTokens = $latestTokensStmt->fetchAll();
     </div>
 </div>
 <script>
-    const ajaxBaseUrl = '<?php echo BASE_URL; ?>admin/ajax_chart_data.php';
+    const ajaxBaseUrl = '<?php echo BASE_URL; ?>tracker/ajax_chart_data.php';
 </script>
 <script src="<?php echo BASE_URL . 'assets/js/dashboard.js'; ?>"></script>
 

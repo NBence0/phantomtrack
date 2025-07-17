@@ -42,7 +42,7 @@ function isLoggedIn() {
 function requireLogin() {
     if (!isLoggedIn()) {
         $_SESSION['redirect_url'] = $_SERVER['REQUEST_URI']; // Elmentjük, hova akart menni
-        header('Location: ' . BASE_URL . 'admin/login.php');
+        header('Location: ' . BASE_URL . 'tracker/login.php');
         exit;
     }
 }
@@ -57,7 +57,7 @@ function logoutUser() {
         );
     }
     session_destroy();
-    header('Location: ' . BASE_URL . 'admin/login.php');
+    header('Location: ' . BASE_URL . 'tracker/login.php');
     exit;
 }
 
@@ -91,7 +91,7 @@ function requireAdmin() {
     if (!isAdmin()) {
         $_SESSION['flash_message'] = "Nincs jogosultságod az oldal megtekintéséhez.";
         $_SESSION['flash_message_type'] = "error";
-        header('Location: ' . BASE_URL . 'admin/dashboard.php'); // Visszairányítjuk a főoldalra
+        header('Location: ' . BASE_URL . 'tracker/dashboard.php'); // Visszairányítjuk a főoldalra
         exit;
     }
 }

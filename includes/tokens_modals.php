@@ -2,7 +2,7 @@
     <div class="modal-content glass-effect">
         <span class="close-btn" onclick="document.getElementById('addTokenModal').style.display='none'">×</span>
         <h2>Új Követő Token Létrehozása</h2>
-        <form method="POST" action="<?php echo BASE_URL; ?>admin/tokens.php" id="addTokenForm">
+        <form method="POST" action="<?php echo BASE_URL; ?>tracker/tokens.php" id="addTokenForm">
             <?php echo csrfInput(); ?>
             <input type="hidden" name="action" value="create_token">
             

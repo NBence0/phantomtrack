@@ -65,7 +65,7 @@
         <h2>Felhasználó Törlése</h2>
         <p>A(z) <strong id="userToDeleteName"></strong> nevű felhasználó törlésre kerül.</p>
         <p>Mi történjen a felhasználóhoz tartozó <strong id="userTokenCount"></strong> darab tokennel?</p>
-        <form id="deleteUserForm" method="POST" action="<?php echo BASE_URL . 'admin/users.php'; ?>">
+        <form id="deleteUserForm" method="POST" action="<?php echo BASE_URL . 'tracker/users.php'; ?>">
             <?php echo csrfInput(); ?>
             <input type="hidden" name="action" value="delete_user">
             <input type="hidden" id="userToDeleteId" name="user_id_to_delete">

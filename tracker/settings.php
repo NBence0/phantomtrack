@@ -91,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // Fájl: admin/settings.php (a PHP feldolgozó blokkban)
+        // Fájl: tracker/settings.php (a PHP feldolgozó blokkban)
 
         elseif ($action === 'save_api_settings') {
             $db->beginTransaction();
@@ -124,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     // A POST feldolgozása után mindig irányítsunk át, hogy elkerüljük az űrlap újraküldését.
-    header('Location: ' . BASE_URL . 'admin/settings.php');
+    header('Location: ' . BASE_URL . 'tracker/settings.php');
     exit;
 }
 

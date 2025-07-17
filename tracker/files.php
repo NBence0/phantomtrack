@@ -32,7 +32,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 <!-- Fájlok szűrése és keresése -->
 <div class="filter-form glass-effect" style="padding: var(--card-padding); margin-bottom: 20px;">
-    <form method="GET" action="<?php echo BASE_URL . 'admin/files.php'; ?>" style="display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end;">
+    <form method="GET" action="<?php echo BASE_URL . 'tracker/files.php'; ?>" style="display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end;">
         <div class="form-group" style="flex: 2; min-width: 250px; margin-bottom:0;">
             <label for="search_file">Keresés a fájlokban:</label>
             <input type="text" id="search_file" name="search_file" placeholder="fajlnev.jpg, leírás..." class="form-control">
@@ -42,7 +42,7 @@ require_once __DIR__ . '/../includes/header.php';
             <input type="text" id="filter_type" name="filter_type" placeholder="pl. image/jpeg" class="form-control">
         </div>
         <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Szűrés</button>
-        <a href="<?php echo BASE_URL . 'admin/files.php'; ?>" class="btn btn-secondary"><i class="fas fa-times"></i> Szűrők törlése</a>
+        <a href="<?php echo BASE_URL . 'tracker/files.php'; ?>" class="btn btn-secondary"><i class="fas fa-times"></i> Szűrők törlése</a>
     </form>
 </div>
 
@@ -63,7 +63,7 @@ require_once __DIR__ . '/../includes/header.php';
             <?php if (empty($userFiles)): ?>
                 <tr>
                     <td colspan="6" style="text-align:center; padding: 40px;">
-                        Még nincsenek feltöltött fájlok. Hozz létre egy <a href="<?php echo BASE_URL; ?>admin/file_requests.php">fájlbekérő linket</a> és oszd meg!
+                        Még nincsenek feltöltött fájlok. Hozz létre egy <a href="<?php echo BASE_URL; ?>tracker/file_requests.php">fájlbekérő linket</a> és oszd meg!
                     </td>
                 </tr>
             <?php else: ?>

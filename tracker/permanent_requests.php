@@ -32,7 +32,7 @@ require_once __DIR__ . '/../includes/header.php';
 <div class="settings-section glass-effect">
     <h2>A Te Személyes Feltöltési Címed</h2>
     <p class="text-secondary" style="margin-bottom: 20px;">
-        Ez a link állandóan a tiéd. Bárkinek elküldheted, aki fájlt szeretne küldeni neked. Az ezen a linken keresztül feltöltött összes fájl a te <a href="<?php echo BASE_URL; ?>admin/files.php">Fájlkezelődbe</a> kerül.
+        Ez a link állandóan a tiéd. Bárkinek elküldheted, aki fájlt szeretne küldeni neked. Az ezen a linken keresztül feltöltött összes fájl a te <a href="<?php echo BASE_URL; ?>tracker/files.php">Fájlkezelődbe</a> kerül.
     </p>
 
     <?php if ($permanent_link_token): ?>

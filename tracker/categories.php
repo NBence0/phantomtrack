@@ -84,7 +84,7 @@ require_once __DIR__ . '/../includes/header.php';
         <h2>Kategória Törlése</h2>
         <p>A(z) <strong id="categoryToDeleteName"></strong> nevű kategória (<span id="categoryTokenCount">0</span> tokennel) törlésre kerül.</p>
         <p style="margin-top:15px;">Mi történjen a kategóriában lévő tokenekkel?</p>
-        <form id="deleteCategoryForm" method="POST" action="<?php echo BASE_URL . 'admin/categories.php'; ?>"> <!-- Az action itt még a régi, de nem számít, mert a JS felülírja -->
+        <form id="deleteCategoryForm" method="POST" action="<?php echo BASE_URL . 'tracker/categories.php'; ?>"> <!-- Az action itt még a régi, de nem számít, mert a JS felülírja -->
             <?php echo csrfInput(); ?>
             <input type="hidden" name="action" value="delete_category_ajax"> <!-- AJAX action-re változtatjuk -->
             <input type="hidden" id="categoryIdToDelete" name="category_id_to_delete">
@@ -155,7 +155,7 @@ require_once __DIR__ . '/../includes/header.php';
 <script>
 // A kategóriák listája a JS számára
 const allCategoriesForMove = <?php echo json_encode(array_map(function($c) { return ['id' => $c['id'], 'name' => $c['name']]; }, $categories)); ?>;
-const AJAX_PHP_URL = '<?php echo BASE_URL; ?>admin/ajax_actions.php';
+const AJAX_PHP_URL = '<?php echo BASE_URL; ?>tracker/ajax_actions.php';
 </script>
 
 <script src="<?php echo BASE_URL . 'assets/js/categories.js'; ?>"></script>

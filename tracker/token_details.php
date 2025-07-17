@@ -14,7 +14,7 @@ $tokenId = (int)($_GET['id'] ?? 0);
 if ($tokenId <= 0) {
     $_SESSION['flash_message'] = "Érvénytelen token ID.";
     $_SESSION['flash_message_type'] = "error";
-    header('Location: ' . BASE_URL . 'admin/tokens.php');
+    header('Location: ' . BASE_URL . 'tracker/tokens.php');
     exit;
 }
 
@@ -26,7 +26,7 @@ $token = $tokenStmt->fetch();
 if (!$token) {
     $_SESSION['flash_message'] = "Token nem található vagy nincs jogosultságod megtekinteni.";
     $_SESSION['flash_message_type'] = "error";
-    header('Location: ' . BASE_URL . 'admin/tokens.php');
+    header('Location: ' . BASE_URL . 'tracker/tokens.php');
     exit;
 }
 
@@ -80,7 +80,7 @@ $logStmt->execute();
 $logs = $logStmt->fetchAll();
 
 
-$exportUrl = BASE_URL . 'admin/token_details.php?id=' . $token['id'] . '&action=export_json'
+$exportUrl = BASE_URL . 'tracker/token_details.php?id=' . $token['id'] . '&action=export_json'
             . (!empty($filterIp) ? '&filter_ip=' . urlencode($filterIp) : '')
             . (!empty($urlDateFrom) ? '&filter_date_from=' . $urlDateFrom : '')
             . (!empty($urlDateTo) ? '&filter_date_to=' . $urlDateTo : '');
@@ -114,7 +114,7 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
         </div>
 
-        <a href="<?php echo BASE_URL . 'admin/tokens.php'; ?>" class="btn btn-info"><i class="fas fa-arrow-left"></i> Vissza a Tokenekhez</a>
+        <a href="<?php echo BASE_URL . 'tracker/tokens.php'; ?>" class="btn btn-info"><i class="fas fa-arrow-left"></i> Vissza a Tokenekhez</a>
     </div>
 </div>
 
@@ -132,7 +132,7 @@ require_once __DIR__ . '/../includes/header.php';
         </div>
         <hr style="margin: 20px 0;">
         <h3><i class="fas fa-filter"></i> Dátumtartomány Szűrő</h3>
-        <form id="dateRangeFormTokenDetails" class="form-inline" style="display:flex; flex-direction:column; gap:10px;" method="GET" action="<?php echo BASE_URL . 'admin/token_details.php'; ?>">
+        <form id="dateRangeFormTokenDetails" class="form-inline" style="display:flex; flex-direction:column; gap:10px;" method="GET" action="<?php echo BASE_URL . 'tracker/token_details.php'; ?>">
             <input type="hidden" name="id" value="<?php echo $tokenId; ?>">
             <?php if (!empty($filterIp)): ?>
                 <input type="hidden" name="filter_ip" value="<?php echo escape($filterIp); ?>">
@@ -176,7 +176,7 @@ require_once __DIR__ . '/../includes/header.php';
         </small>
     </div>
     <div class="filter-form glass-effect" style="padding: var(--card-padding); margin-bottom: 20px;">
-        <form method="GET" action="<?php echo BASE_URL . 'admin/token_details.php'; ?>" style="display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end;">
+        <form method="GET" action="<?php echo BASE_URL . 'tracker/token_details.php'; ?>" style="display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end;">
             <input type="hidden" name="id" value="<?php echo $tokenId; ?>">
             <?php // A dátumszűrők a bal oldali panelen vannak, itt csak az IP szűrő van. ?>
             <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom:0;">
@@ -188,7 +188,7 @@ require_once __DIR__ . '/../includes/header.php';
             <input type="hidden" name="filter_date_to" value="<?php echo escape($defaultEndDateForForm); ?>">
             <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Napló Szűrése</button>
             <?php if (!empty($filterIp) || !empty($urlDateFrom) || !empty($urlDateTo)): ?>
-                 <a href="<?php echo BASE_URL . 'admin/token_details.php?id=' . $tokenId; ?>" class="btn btn-secondary"><i class="fas fa-times"></i> Szűrők törlése</a>
+                 <a href="<?php echo BASE_URL . 'tracker/token_details.php?id=' . $tokenId; ?>" class="btn btn-secondary"><i class="fas fa-times"></i> Szűrők törlése</a>
             <?php endif; ?>
         </form>
     </div>
@@ -283,9 +283,9 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 <script>
     const tokenCreatedAt = new Date('<?php echo $token['created_at']; ?>');
-    const ajaxBaseUrl = '<?php echo BASE_URL; ?>admin/ajax_chart_data.php';
+    const ajaxBaseUrl = '<?php echo BASE_URL; ?>tracker/ajax_chart_data.php';
     const currentTokenId = <?php echo $tokenIdForJs; ?>;
-    const handlerUrl = '<?php echo BASE_URL; ?>admin/export_handler.php';
+    const handlerUrl = '<?php echo BASE_URL; ?>tracker/export_handler.php';
 </script>
 <script src="<?php echo BASE_URL . 'assets/js/token_details.js'; ?>"></script>
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>  

@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
     }
-    $redirectUrl = BASE_URL . 'admin/tokens.php';
+    $redirectUrl = BASE_URL . 'tracker/tokens.php';
     if (isset($_GET['category_id'])) {
         $redirectUrl .= '?category_id=' . (int)$_GET['category_id'];
     }
@@ -62,7 +62,7 @@ if (isset($_GET['action'])) {
         $_SESSION['flash_message'] = "Token státusza frissítve.";
         $_SESSION['flash_message_type'] = "success";
         
-        $redirectUrl = BASE_URL . 'admin/tokens.php';
+        $redirectUrl = BASE_URL . 'tracker/tokens.php';
         if (isset($_GET['category_id'])) {
             $redirectUrl .= '?category_id=' . (int)$_GET['category_id'];
         } elseif (isset($_GET['page'])) {
@@ -72,6 +72,28 @@ if (isset($_GET['action'])) {
         exit;
     }
 }
+
+// ITT KELL KIEGÉSZÍTENI
+if (isset($_GET['action'])) {
+    // --- CSRF VÉDELEM GET ALAPÚ MŰVELETEKRE ---
+    // Szigorúbb biztonságért a GET alapú állapotváltoztató műveleteket is védeni kellene.
+    // Most az egyszerűség kedvéért elhagyjuk, de éles rendszerben ezt is meg kell oldani
+    // pl. egy token hozzáadásával a linkhez és annak ellenőrzésével.
+
+    $tokenId = (int)($_GET['id'] ?? 0);
+
+    // Státuszváltás
+    if ($_GET['action'] === 'toggle_status' && $tokenId > 0) {
+        $stmt = $db->prepare("UPDATE tokens SET is_active = NOT is_active WHERE id = :id AND user_id = :user_id");
+        if ($stmt->execute([':id' => $tokenId, ':user_id' => $currentUserId])) {
+             $_SESSION['flash_message'] = "Token státusza frissítve.";
+             $_SESSION['flash_message_type'] = "success";
+        }
+        $redirectUrl = BASE_URL . 'tracker/tokens.php' . (isset($_GET['category_id']) ? '?category_id='.(int)$_GET['category_id'] : '');
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
+
 
     // *** ÚJ BLOKK: TOKEN TÖRLÉSE ***
     if ($_GET['action'] === 'delete_token' && $tokenId > 0) {
@@ -98,11 +120,11 @@ if (isset($_GET['action'])) {
         }
         
         // 3. Átirányítás a token lista oldalra
-        $redirectUrl = BASE_URL . 'admin/tokens.php' . (isset($_GET['category_id']) ? '?category_id='.(int)$_GET['category_id'] : '');
+        $redirectUrl = BASE_URL . 'tracker/tokens.php' . (isset($_GET['category_id']) ? '?category_id='.(int)$_GET['category_id'] : '');
         header('Location: ' . $redirectUrl);
         exit;
     }
-
+}
 // === 2. LÉPÉS: ADATOK LEKÉRDEZÉSE A MEGJELENÍTÉSHEZ ===
 $pageTitle = "Token Menedzsment";
 
@@ -205,7 +227,7 @@ include __DIR__ . '/../includes/tokens_modals.php';
                 <?php foreach ($tokens as $token): ?>
                 <tr>
                     <td data-label="Név (Kategória)">
-                        <a href="<?php echo BASE_URL . 'admin/token_details.php?id=' . $token['id']; ?>">
+                        <a href="<?php echo BASE_URL . 'tracker/token_details.php?id=' . $token['id']; ?>">
                             <?php echo escape($token['name']); ?>
                         </a>
 
@@ -241,11 +263,11 @@ include __DIR__ . '/../includes/tokens_modals.php';
                     </td>
                     <td data-label="Műveletek">
                         <div class="action-buttons">
-                            <a href="<?php echo BASE_URL . 'admin/token_details.php?id=' . $token['id']; ?>" class="btn btn-small btn-info" title="Részletek"><i class="fas fa-eye"></i></a>
-                            <a href="<?php echo BASE_URL . 'admin/tokens.php?action=toggle_status&id=' . $token['id']; ?>" class="btn btn-small <?php echo $token['is_active'] ? 'btn-warning' : 'btn-success'; ?>" title="<?php echo $token['is_active'] ? 'Deaktiválás' : 'Aktiválás'; ?>">
+                            <a href="<?php echo BASE_URL . 'tracker/token_details.php?id=' . $token['id']; ?>" class="btn btn-small btn-info" title="Részletek"><i class="fas fa-eye"></i></a>
+                            <a href="<?php echo BASE_URL . 'tracker/tokens.php?action=toggle_status&id=' . $token['id']; ?>" class="btn btn-small <?php echo $token['is_active'] ? 'btn-warning' : 'btn-success'; ?>" title="<?php echo $token['is_active'] ? 'Deaktiválás' : 'Aktiválás'; ?>">
                                 <i class="fas <?php echo $token['is_active'] ? 'fa-toggle-off' : 'fa-toggle-on'; ?>"></i>
                             </a>
-                            <a href="<?php echo BASE_URL . 'admin/tokens.php?action=delete_token&id=' . $token['id']; ?>" class="btn btn-small btn-danger" onclick="return confirm('Biztosan törölni szeretnéd ezt a tokent és minden kapcsolódó adatot?');" title="Törlés">
+                            <a href="<?php echo BASE_URL . 'tracker/tokens.php?action=delete_token&id=' . $token['id']; ?>" class="btn btn-small btn-danger" onclick="return confirm('Biztosan törölni szeretnéd ezt a tokent és minden kapcsolódó adatot?');" title="Törlés">
                                 <i class="fas fa-trash-alt"></i>
                             </a>
                             <button onclick="openEditTokenModal(<?php echo $token['id']; ?>)" class="btn btn-small btn-secondary" title="Szerkesztés"><i class="fas fa-edit"></i></button>
@@ -303,7 +325,7 @@ include __DIR__ . '/../includes/tokens_modals.php';
 
 <script>
     const PageConfig = { // <- Átnevezve!
-        ajaxUrl: '<?php echo BASE_URL . "admin/ajax_actions.php"; ?>',
+        ajaxUrl: '<?php echo BASE_URL . "tracker/ajax_actions.php"; ?>',
         allUserCategories: <?php echo json_encode($availableCategories); ?>,
         baseUrl: '<?php echo BASE_URL; ?>',
     };

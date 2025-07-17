@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
             }
         }
-        header('Location: ' . BASE_URL . 'admin/users.php');
+        header('Location: ' . BASE_URL . 'tracker/users.php');
         exit;
     }
 }
@@ -139,7 +139,7 @@ require_once __DIR__ . '/../includes/header.php';
     // és amire a külső JavaScript fájlnak szüksége van.
     const UserPageConfig = {
         // Az AJAX kérésekhez használt központi URL
-        ajaxUrl: '<?php echo BASE_URL; ?>admin/ajax_actions.php',
+        ajaxUrl: '<?php echo BASE_URL; ?>tracker/ajax_actions.php',
 
         // A felhasználók listája a tokenek áthelyezéséhez
         // Csak az ID és a felhasználónév szükséges

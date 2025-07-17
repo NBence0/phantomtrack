@@ -1,5 +1,5 @@
 <?php
-// Hely: admin/ajax_actions.php
+// Hely: tracker/ajax_actions.php
 
 // Alapvető beállítások és biztonsági ellenőrzések
 require_once __DIR__ . '/../config.php';
@@ -157,7 +157,7 @@ switch ($action) {
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
-        $is_admin = isset($_POST['is_admin']) ? 1 : 0;
+        $is_tracker = isset($_POST['is_tracker']) ? 1 : 0;
         if(empty($username) || empty($email) || empty($password)){
              $response['message'] = 'Minden mező kitöltése kötelező.';
         } else {
@@ -166,7 +166,7 @@ switch ($action) {
             if($checkStmt->fetch()){
                  $response['message'] = "Felhasználónév vagy email már foglalt.";
             } else {
-                if (registerUser($username, $email, $password, $is_admin)) {
+                if (registerUser($username, $email, $password, $is_tracker)) {
                      $response['success'] = true;
                      $response['message'] = "Felhasználó sikeresen létrehozva.";
                 } else {
@@ -179,7 +179,7 @@ switch ($action) {
     case 'get_user_details':
         $userId = (int)($_POST['user_id'] ?? 0);
         if ($userId > 0) {
-            $stmt = $db->prepare("SELECT id, username, email, is_admin FROM users WHERE id = :id");
+            $stmt = $db->prepare("SELECT id, username, email, is_tracker FROM users WHERE id = :id");
             $stmt->execute([':id' => $userId]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($user) {
@@ -194,7 +194,7 @@ switch ($action) {
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $newPassword = $_POST['password'] ?? '';
-        $isAdmin = isset($_POST['is_admin']) ? 1 : 0;
+        $istracker = isset($_POST['is_tracker']) ? 1 : 0;
 
         if ($userId > 0 && !empty($username) && !empty($email)) {
             // Egyediség-ellenőrzés
@@ -203,8 +203,8 @@ switch ($action) {
             if ($checkStmt->fetch()) {
                  $response['message'] = 'A megadott felhasználónév vagy email már foglalt.';
             } else {
-                $sql = "UPDATE users SET username = :username, email = :email, is_admin = :is_admin";
-                $params = [':username' => $username, ':email' => $email, ':is_admin' => $isAdmin, ':id' => $userId];
+                $sql = "UPDATE users SET username = :username, email = :email, is_tracker = :is_tracker";
+                $params = [':username' => $username, ':email' => $email, ':is_tracker' => $istracker, ':id' => $userId];
                 if (!empty($newPassword)) {
                     $sql .= ", password_hash = :password_hash";
                     $params[':password_hash'] = password_hash($newPassword, PASSWORD_DEFAULT);

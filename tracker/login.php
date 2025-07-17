@@ -7,7 +7,7 @@ $pageTitle = "Bejelentkezés - PhantomTrack";
 $errorMessage = '';
 
 if (isLoggedIn()) {
-    header('Location: ' . BASE_URL . 'admin/dashboard.php');
+    header('Location: ' . BASE_URL . 'tracker/dashboard.php');
     exit;
 }
 //registerUser('admin1', 'admin1@example.com', '1234'); // NE HASZNÁLD ÉLESBEN!
@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $username = $_POST['username'] ?? '';
         $password = $_POST['password'] ?? '';
         if (attemptLogin($username, $password)) {
-            $redirectUrl = $_SESSION['redirect_url'] ?? BASE_URL . 'admin/dashboard.php';
+            $redirectUrl = $_SESSION['redirect_url'] ?? BASE_URL . 'tracker/dashboard.php';
             unset($_SESSION['redirect_url']);
             header('Location: ' . $redirectUrl);
         exit;
@@ -60,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php if ($errorMessage): ?>
                 <p class="message error-message"><?php echo escape($errorMessage); ?></p>
             <?php endif; ?>
-                <form method="POST" action="<?php echo BASE_URL; ?>admin/login.php">
+                <form method="POST" action="<?php echo BASE_URL; ?>tracker/login.php">
                 <?php echo csrfInput(); ?>
                 <div class="form-group">
                     <label for="username"><i class="fas fa-user"></i> Felhasználónév vagy Email</label>
@@ -74,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
             </form>
             <p style="margin-top: 20px;">
-                Nincs még fiókod? <a href="<?php echo BASE_URL; ?>admin/register.php" style="color:var(--accent-primary);">Regisztrálj most!</a>
+                Nincs még fiókod? <a href="<?php echo BASE_URL; ?>tracker/register.php" style="color:var(--accent-primary);">Regisztrálj most!</a>
             </p>
         </div>
     </div>

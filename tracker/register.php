@@ -8,7 +8,7 @@ $errorMessage = '';
 $successMessage = '';
 
 if (isLoggedIn()) {
-    header('Location: ' . BASE_URL . 'admin/dashboard.php');
+    header('Location: ' . BASE_URL . 'tracker/dashboard.php');
     exit;
 }
 
@@ -47,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $successMessage = "Sikeres regisztráció! Most már bejelentkezhetsz.";
                     // Opcionális: Automatikus bejelentkeztetés
                     // attemptLogin($username, $password);
-                    // header('Location: ' . BASE_URL . 'admin/dashboard.php');
+                    // header('Location: ' . BASE_URL . 'tracker/dashboard.php');
                     // exit;
                 } else {
                     $errorMessage = "Hiba történt a regisztráció során. Kérjük, próbálja meg később.";
@@ -81,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
 
             <?php if (!$successMessage): // Ha sikeres, a formot elrejtjük ?>
-            <form method="POST" action="<?php echo BASE_URL; ?>admin/register.php">
+            <form method="POST" action="<?php echo BASE_URL; ?>tracker/register.php">
                 <?php echo csrfInput(); ?>
                 <div class="form-group">
                     <label for="username"><i class="fas fa-user"></i> Felhasználónév</label>
@@ -116,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
             <?php endif; ?>
              <p style="margin-top: 20px;">
-                Van már fiókod? <a href="<?php echo BASE_URL; ?>admin/login.php" style="color:var(--accent-primary);">Jelentkezz be!</a>
+                Van már fiókod? <a href="<?php echo BASE_URL; ?>tracker/login.php" style="color:var(--accent-primary);">Jelentkezz be!</a>
             </p>
         </div>
     </div>

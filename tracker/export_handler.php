@@ -1,5 +1,5 @@
 <?php
-// Hely: admin/export_handler.php
+// Hely: tracker/export_handler.php
 // Ez a fájl kezeli az összes adat exportálási kérelmet (JSON, CSV, XLSX, PDF).
 
 // 1. Alapvető beállítások és biztonsági ellenőrzések
