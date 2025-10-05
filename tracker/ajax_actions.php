@@ -154,10 +154,14 @@ switch ($action) {
         }
         break;
     case 'create_user_ajax':
+        if (!isAdmin()) { // Biztonsági ellenőrzés, csak admin hozhasson létre usert
+            $response['message'] = 'Nincs jogosultságod a művelethez.';
+            break;
+        }
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
-        $is_tracker = isset($_POST['is_tracker']) ? 1 : 0;
+        $is_admin = isset($_POST['is_admin']) ? 1 : 0; // <-- JAVÍTVA
         if(empty($username) || empty($email) || empty($password)){
              $response['message'] = 'Minden mező kitöltése kötelező.';
         } else {
@@ -166,7 +170,8 @@ switch ($action) {
             if($checkStmt->fetch()){
                  $response['message'] = "Felhasználónév vagy email már foglalt.";
             } else {
-                if (registerUser($username, $email, $password, $is_tracker)) {
+                // A registerUser függvény az is_admin paramétert várja
+                if (registerUser($username, $email, $password, $is_admin)) { // <-- JAVÍTVA
                      $response['success'] = true;
                      $response['message'] = "Felhasználó sikeresen létrehozva.";
                 } else {
@@ -177,9 +182,13 @@ switch ($action) {
         break;
 
     case 'get_user_details':
+        if (!isAdmin()) {
+            $response['message'] = 'Nincs jogosultságod a művelethez.';
+            break;
+        }
         $userId = (int)($_POST['user_id'] ?? 0);
         if ($userId > 0) {
-            $stmt = $db->prepare("SELECT id, username, email, is_tracker FROM users WHERE id = :id");
+            $stmt = $db->prepare("SELECT id, username, email, is_admin FROM users WHERE id = :id"); // <-- JAVÍTVA
             $stmt->execute([':id' => $userId]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($user) {
@@ -190,11 +199,15 @@ switch ($action) {
         break;
 
     case 'update_user':
+        if (!isAdmin()) {
+            $response['message'] = 'Nincs jogosultságod a művelethez.';
+            break;
+        }
         $userId = (int)($_POST['user_id'] ?? 0);
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $newPassword = $_POST['password'] ?? '';
-        $istracker = isset($_POST['is_tracker']) ? 1 : 0;
+        $isAdmin = isset($_POST['is_admin']) ? 1 : 0; 
 
         if ($userId > 0 && !empty($username) && !empty($email)) {
             // Egyediség-ellenőrzés
@@ -203,8 +216,8 @@ switch ($action) {
             if ($checkStmt->fetch()) {
                  $response['message'] = 'A megadott felhasználónév vagy email már foglalt.';
             } else {
-                $sql = "UPDATE users SET username = :username, email = :email, is_tracker = :is_tracker";
-                $params = [':username' => $username, ':email' => $email, ':is_tracker' => $istracker, ':id' => $userId];
+                $sql = "UPDATE users SET username = :username, email = :email, is_admin = :is_admin";
+                $params = [':username' => $username, ':email' => $email, ':is_admin' => $isAdmin, ':id' => $userId];
                 if (!empty($newPassword)) {
                     $sql .= ", password_hash = :password_hash";
                     $params[':password_hash'] = password_hash($newPassword, PASSWORD_DEFAULT);
@@ -217,10 +230,13 @@ switch ($action) {
                     if ($userId == $currentUserId) { $_SESSION['username'] = $username; }
                 } else { $response['message'] = 'Hiba a mentés során.'; }
             }
-        } else { $response['message'] = 'Hiányzó vagy érvénytelen adatok.'; }
+        } 
+        else { 
+            $response['message'] = 'Hiányzó vagy érvénytelen adatok.'; 
+        }
         break;
 
-            case 'delete_category_ajax':
+    case 'delete_category_ajax':
         $categoryId = (int)($_POST['category_id_to_delete'] ?? 0);
         $tokenAction = $_POST['token_action'] ?? 'delete';
         $moveToCategoryId = ($_POST['move_to_category_id'] === 'none' || empty($_POST['move_to_category_id'])) ? null : (int)$_POST['move_to_category_id'];
