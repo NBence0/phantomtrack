@@ -103,7 +103,10 @@ require_once __DIR__ . '/../includes/header.php';
             <?php foreach ($limited_requests as $link): ?>
             <tr>
                 <td data-label="Név"><?php echo escape($link['name']); ?></td>
-                <td data-label="Bekérő Link" class="token-value-cell"><!-- ... (input + copy gomb) ... --></td>
+                <td data-label="Bekérő Link" class="token-value-cell">
+                    <input type="text" value="<?php echo BASE_URL . 'Upload.php?token=' . escape($link['token_value']); ?>" readonly class="pixel-url-input">
+                    <button class="btn btn-small btn-copy" onclick="copyToClipboard(this.previousElementSibling)"><i class="far fa-copy"></i></button>
+                </td>
                 <td data-label="Státusz / Lejárat">
                     <?php 
                     $isExpired = $link['expiry_time'] && strtotime($link['expiry_time']) < time();

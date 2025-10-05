@@ -397,4 +397,150 @@ function formatBytes($bytes, $precision = 2) {
     }
     return round($bytes, $precision) . ' ' . $units[$i];
 }
+
+/**
+ * Központi függvény a fájlokhoz való hozzáférés validálására.
+ * Ellenőrzi a lejárati időt, IP-szűrést és a jelszavas védelmet.
+ *
+ * @param array $fileData A 'files' tábla egy sora.
+ * @return array ['valid' => bool, 'reason' => string]
+ */
+function validateFileAccess($fileData) {
+    if (!$fileData) {
+        return ['valid' => false, 'reason' => 'A fájl nem létezik.'];
+    }
+
+    $fileId = $fileData['id'];
+    $ip = getIpAddress();
+    $now = time();
+    $expiryTimestamp = $fileData['expiry_time'] ? strtotime($fileData['expiry_time']) : null;
+
+    // 1. Lejárati idő ellenőrzése
+    if ($expiryTimestamp && $now > $expiryTimestamp) {
+        logActivity('file_view_expired', null, $fileId);
+        return ['valid' => false, 'reason' => 'A fájl lejárt.'];
+    }
+
+    // 2. IP Feketelista ellenőrzése
+    $ipBlacklist = $fileData['ip_blacklist'] ? json_decode($fileData['ip_blacklist'], true) : [];
+    if (!empty($ipBlacklist) && in_array($ip, $ipBlacklist)) {
+        logActivity('file_view_denied_ip', null, $fileId);
+        return ['valid' => false, 'reason' => 'A hozzáférés erről az IP címről le van tiltva.'];
+    }
+
+    // 3. IP Fehérlista ellenőrzése
+    $ipWhitelist = $fileData['ip_whitelist'] ? json_decode($fileData['ip_whitelist'], true) : [];
+    if (!empty($ipWhitelist) && !in_array($ip, $ipWhitelist)) {
+        logActivity('file_view_denied_ip', null, $fileId);
+        return ['valid' => false, 'reason' => 'A hozzáférés csak megadott IP címekről engedélyezett.'];
+    }
+
+    // 4. Jelszó ellenőrzése
+    if ($fileData['password_hash']) {
+        if (session_status() == PHP_SESSION_NONE) {
+            session_start();
+        }
+        // Ellenőrizzük, hogy van-e érvényes session a fájlhoz.
+        // A session 1 óráig (3600 mp) érvényes.
+        if (!isset($_SESSION['authenticated_files'][$fileId]) || (time() - $_SESSION['authenticated_files'][$fileId] > 3600)) {
+            // Ha van régi, töröljük.
+            if (isset($_SESSION['authenticated_files'][$fileId])) {
+                unset($_SESSION['authenticated_files'][$fileId]);
+            }
+            // Jelszó szükséges.
+            return ['valid' => false, 'reason' => 'password_required'];
+        }
+    }
+
+    // Ha minden ellenőrzésen átment
+    return ['valid' => true, 'reason' => 'Access granted.'];
+}
+
+
+/**
+ * Indexképet generál egy képfájlból, figyelembe véve az EXIF orientációt.
+ * GD és EXIF kiterjesztést igényel.
+ * @param string $sourcePath A forrás képfájl útvonala.
+ * @param string $destinationPath A cél indexkép útvonala.
+ * @param int $width A kívánt szélesség.
+ * @return bool Sikeresség.
+ */
+function createThumbnail($sourcePath, $destinationPath, $width = 250) {
+    if (!extension_loaded('gd')) {
+        error_log('Thumbnail generation failed: GD extension is not loaded.');
+        return false;
+    }
+
+    $imageInfo = getimagesize($sourcePath);
+    if ($imageInfo === false) {
+        return false;
+    }
+    list($originalWidth, $originalHeight, $type) = $imageInfo;
+
+    $sourceImage = null;
+    switch ($type) {
+        case IMAGETYPE_JPEG:
+            $sourceImage = @imagecreatefromjpeg($sourcePath);
+            break;
+        case IMAGETYPE_PNG:
+            $sourceImage = @imagecreatefrompng($sourcePath);
+            break;
+        case IMAGETYPE_GIF:
+            $sourceImage = @imagecreatefromgif($sourcePath);
+            break;
+        case IMAGETYPE_WEBP:
+            if (function_exists('imagecreatefromwebp')) {
+                $sourceImage = @imagecreatefromwebp($sourcePath);
+            }
+            break;
+    }
+
+    if (!$sourceImage) {
+        return false;
+    }
+
+    if ($type === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
+        $exif = @exif_read_data($sourcePath);
+        if (!empty($exif['Orientation'])) {
+            switch ($exif['Orientation']) {
+                case 3:
+                    $sourceImage = imagerotate($sourceImage, 180, 0);
+                    break;
+                case 6:
+                    $sourceImage = imagerotate($sourceImage, -90, 0);
+                    // Forgatás után a méretek felcserélődnek
+                    list($originalWidth, $originalHeight) = [$originalHeight, $originalWidth];
+                    break;
+                case 8:
+                    $sourceImage = imagerotate($sourceImage, 90, 0);
+                    // Forgatás után a méretek felcserélődnek
+                    list($originalWidth, $originalHeight) = [$originalHeight, $originalWidth];
+                    break;
+            }
+        }
+    }
+
+    $ratio = $originalWidth > 0 ? $originalWidth / $originalHeight : 1;
+    $height = (int) round($width / $ratio);
+
+    $thumbnail = imagecreatetruecolor($width, $height);
+    
+    // Átlátszóság kezelése PNG és WEBP esetén
+    if ($type == IMAGETYPE_PNG || $type == IMAGETYPE_WEBP) {
+        imagecolortransparent($thumbnail, imagecolorallocatealpha($thumbnail, 0, 0, 0, 127));
+        imagealphablending($thumbnail, false);
+        imagesavealpha($thumbnail, true);
+    }
+    
+    imagecopyresampled($thumbnail, $sourceImage, 0, 0, 0, 0, $width, $height, $originalWidth, $originalHeight);
+    
+    // Mentés WEBP formátumban a jobb teljesítményért
+    $success = imagewebp($thumbnail, $destinationPath, 80);
+
+    imagedestroy($sourceImage);
+    imagedestroy($thumbnail);
+    
+    return $success;
+}
+
 ?>

@@ -426,58 +426,6 @@ function uploadSingleFileDirectly(file, uiUniqueId) {
     xhr.open('POST', 'UploadHandler.php', true);
     xhr.send(formData);
 }
-function showProgress() {
-    progressContainer.style.display = 'block';
-    progressFill.style.width = '0%';
-    progressText.textContent = '0%';
-    speedText.textContent = '0 KB/s';
-    chunkInfoText.textContent = '';
-}
-
-function hideProgress() {
-    // Nem rejtjük el azonnal, a showSuccess/showError majd kezeli, ha kell
-    // progressContainer.style.display = 'none'; 
-}
-
-function updateProgress(percent, speed) {
-    progressFill.style.width = Math.min(100, percent).toFixed(2) + '%';
-    progressText.textContent = Math.round(Math.min(100, percent)) + '%';
-    
-    let speedTextValue = '';
-    if (speed < 1024) {
-        speedTextValue = Math.round(speed) + ' B/s';
-    } else if (speed < 1024 * 1024) {
-        speedTextValue = (speed / 1024).toFixed(1) + ' KB/s';
-    } else {
-        speedTextValue = (speed / (1024 * 1024)).toFixed(2) + ' MB/s';
-    }
-    speedText.textContent = speedTextValue;
-}
-
-function showSuccess(response) {
-    const successDiv = document.createElement('div');
-    successDiv.style.cssText = "background: rgba(46, 204, 113, 0.2); border: 1px solid #2ecc71; border-radius: 10px; padding: 20px; margin-top: 20px; text-align: center; position: relative;";
-    
-    let qrCodeHTML = '';
-    if (response.qr_code) {
-        qrCodeHTML = `<div style="margin-bottom: 15px;">
-                <img src="${response.qr_code}" alt="QR Kód" title="QR Kód a fájlhoz" style="width: 150px; height: 150px; border: 1px solid #ccc; border-radius: 5px; background: white; padding: 5px;">
-            </div>`;
-    }
-    successDiv.innerHTML = `
-        <button onclick="this.parentElement.remove(); hideProgress();" style="position: absolute; top: 10px; right: 10px; background: transparent; border: none; font-size: 1.5rem; color: #aaa; cursor: pointer; line-height:1;">×</button>
-        <h3 style="color: #2ecc71; margin-bottom: 15px;">✅ Feltöltés sikeres!</h3>
-        <p style="margin-bottom: 10px;">Fájl ID: <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">${response.file_id}</code></p>
-        ${qrCodeHTML}
-        <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-            <a href="${response.view_url}" target="_blank" class="btn">👁️ Megtekintés</a>
-            <button class="btn btn-secondary" onclick="copyToClipboard('${response.view_url.startsWith('http') ? response.view_url : window.location.origin + '/' + response.view_url }')">📋 Link másolás</button>
-        </div>
-    `;
-    
-    uploadArea.appendChild(successDiv);
-    progressContainer.style.display = 'none'; // Elrejtjük a progress bart siker esetén
-}
 
 function showError(message) {
     const errorDiv = document.createElement('div');
@@ -488,7 +436,7 @@ function showError(message) {
         <p style="color: #ffffff;">${message}</p>
     `;
     uploadArea.appendChild(errorDiv);
-    progressContainer.style.display = 'none'; // Elrejtjük a progress bart hiba esetén
+    currentFileProgressContainer.style.display = 'none'; // Elrejtjük az AKTUÁLIS fájl progress barját
 }
 
 function copyToClipboard(text) {

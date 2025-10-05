@@ -30,18 +30,6 @@ if (!$fileData) {
 // (A függvény definíciója a View.php-ből átvehető vagy egy közös helyre tehető)
 // Most feltételezzük, hogy a functions.php-ben van.
 
-// Itt egy külön validáció kell, ami a letöltési limiteket is ellenőrzi
-function validateDownloadAccess($fileData) {
-    // ... (ugyanazok az ellenőrzések, mint a data.php-ben: lejárat, jelszó, IP)
-    // PLUSZ:
-    if ($fileData['one_time_download'] && $fileData['download_count'] > 0) {
-        return ['valid' => false, 'reason' => 'Ezt a fájlt már letöltötték (egyszeri link).'];
-    }
-    if ($fileData['max_downloads'] !== null && $fileData['download_count'] >= $fileData['max_downloads']) {
-        return ['valid' => false, 'reason' => 'Elérte a maximális letöltési számot.'];
-    }
-    return ['valid' => true];
-}
 // Az egyszerűség kedvéért most a View.php-ből átvett, kibővített logikát használjuk
 $validation = validateFileAccess($fileData); // A View.php-ben definiáltból
 if (!$validation['valid']) {

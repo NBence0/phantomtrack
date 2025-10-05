@@ -786,7 +786,7 @@ body {
     color: var(--accent-primary);
 }
 .stat-card .stat-label {
-    font-size: 0.5em;
+    font-size: 1em;
     color: var(--text-secondary);
     font-weight: 400;
     vertical-align: middle;
@@ -1327,4 +1327,177 @@ div.prism-toolbar .toolbar-item button:hover {
     .btn { padding: 10px 15px; font-size: 0.9em; }
     th, td { padding: 10px 8px; }
     .table-container td:before { width: 40%; }
+}
+
+
+/* === Fájlkezelő Rács Nézet Stílusai === */
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+.view-switcher .btn {
+    padding: 6px 10px;
+}
+
+.file-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 20px;
+}
+.no-files-message {
+    grid-column: 1 / -1; /* Terjedjen ki a teljes szélességre */
+    text-align: center;
+    padding: 50px;
+    color: var(--text-secondary);
+}
+.file-card {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.file-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0, 212, 255, 0.2);
+}
+.file-preview-link {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background-color: rgba(0,0,0,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+.file-thumbnail {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.file-icon-fallback {
+    font-size: 3rem;
+    color: var(--accent-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
+.file-info {
+    padding: 10px;
+    flex-grow: 1;
+}
+.file-name {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-primary);
+}
+.file-meta {
+    font-size: 0.8em;
+    color: var(--text-secondary);
+}
+.file-actions {
+    display: flex;
+    justify-content: space-around;
+    padding: 8px;
+    border-top: 1px solid var(--glass-border);
+}
+.file-actions a {
+    color: var(--text-secondary);
+    font-size: 1.1em;
+    transition: color 0.2s ease;
+}
+.file-actions a:hover {
+    color: var(--accent-primary);
+}
+.file-actions a[title="Törlés"]:hover {
+    color: var(--color-error);
+}
+
+
+
+
+
+/* ===================================================================
+   7. VIEW.PHP OLDALSPECIFIKUS STÍLUSOK
+   (A view.css fájlból áthelyezve és finomítva)
+=================================================================== */
+
+/* Jelszó űrlap konténere */
+.password-form-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+}
+.password-form {
+    max-width: 450px;
+    width: 90%;
+    padding: 40px 30px;
+    text-align: center;
+}
+.password-form .lock-icon { font-size: 3rem; margin-bottom: 20px; color: var(--accent-primary); }
+.password-form .form-title { font-size: 1.8em; color: var(--text-primary); margin-bottom: 10px; }
+.password-form .form-desc { color: var(--text-secondary); margin-bottom: 25px; }
+.password-form .form-input { /* Használja a globális form stílusokat */ }
+
+/* Fő nézet konténer */
+.view-container .header {
+    padding: 20px;
+    margin-bottom: 20px;
+}
+.view-container .file-info {
+    display: flex; align-items: center; gap: 15px; margin-bottom: 20px;
+}
+.view-container .file-icon { font-size: 2.5rem; color: var(--accent-secondary); }
+.view-container .file-details h1 { margin: 0 0 5px 0; font-size: 1.8rem; color: var(--text-primary); word-break: break-word; }
+.view-container .file-meta { color: var(--text-secondary); font-size: 0.9rem; }
+.view-container .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.preview-container {
+    padding: 20px; margin-bottom: 20px; text-align: center;
+}
+.preview-image, .preview-video { max-width: 100%; max-height: 70vh; border-radius: 10px; }
+.preview-audio { width: 100%; max-width: 500px; margin-top: 20px; }
+.preview-pdf { width: 100%; height: 75vh; border: none; border-radius: 10px; }
+
+.preview-text {
+    background: #272822; /* Okaidia téma háttere */
+    padding: 1px;
+    border-radius: 10px; text-align: left;
+    overflow: auto; max-height: 70vh;
+    border: 1px solid var(--glass-border);
+}
+.preview-text pre { margin: 0; background: transparent !important; }
+
+.preview-markdown {
+    padding: 20px 30px; text-align: left;
+    overflow: auto; max-height: 70vh;
+}
+.preview-markdown h1, .preview-markdown h2, .preview-markdown h3 { margin-top: 1em; margin-bottom: 0.5em; color: var(--accent-secondary); border-bottom: 1px solid var(--glass-border); padding-bottom: 0.3em;}
+.preview-markdown code { background-color: rgba(0,0,0,0.3); padding: 0.2em 0.4em; border-radius: 3px; font-family: 'Consolas', monospace; color: var(--accent-primary); }
+.preview-markdown pre { background-color: rgba(0,0,0,0.2); padding: 1em; border-radius: 5px; overflow-x: auto; }
+.preview-markdown pre code { background: transparent; padding: 0; color: inherit; }
+.preview-markdown blockquote { border-left: 3px solid var(--accent-primary); margin-left: 0; padding-left: 1.5em; color: var(--text-secondary); font-style: italic; }
+
+.file-icon-large { font-size: 5rem; color: var(--accent-secondary); margin-bottom: 20px; }
+.no-preview { color: var(--text-secondary); font-size: 1.1rem; }
+
+.stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px; margin-top: 20px;
+}
+.stat-card {
+    padding: 15px; text-align: center;
+}
+.stat-value { font-size: 1.8rem; font-weight: bold; color: var(--accent-primary); }
+.stat-label { color: var(--text-secondary); font-size: 0.9rem; margin-top: 5px; }
+
+@media (max-width: 768px) {
+    .view-container .actions { justify-content: center; }
+    .view-container .btn { flex-grow: 1; justify-content: center; min-width: 130px; }
 }

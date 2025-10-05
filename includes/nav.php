@@ -7,8 +7,16 @@ $category_id_from_url = null;
 if (in_array($current_page, ['tokens.php', 'files.php']) && isset($_GET['category_id'])) {
     $category_id_from_url = (int)$_GET['category_id'];
 }
-$category_link_target_page = in_array($current_page, ['files.php', 'file_requests.php', 'permanent_requests.php']) ? 'files.php' : 'tokens.php';
-// Csak akkor kérdezzük le a kategóriákat, ha be van lépve a felhasználó
+
+
+// A nav.php elején, a $navCategories lekérdezése után:
+$category_link_target_page = 'tokens.php'; // Alapértelmezett
+// Ha a jövőben a fájloknak is lesz kategóriája, itt lehetne logikát váltani:
+// if (in_array($current_page, ['files.php', 'file_requests.php'])) {
+//     $category_link_target_page = 'files.php';
+// }
+
+
 $navCategories = [];
 if (function_exists('getCurrentUserId') && getCurrentUserId()) {
     $dbNav = getDB();

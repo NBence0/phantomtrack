@@ -121,18 +121,18 @@ require_once __DIR__ . '/includes/header_public.php';
 
 <!-- Kiegészített showSuccess függvény a JS számára -->
 <script>
-    // Felülírjuk a showSuccess függvényt, hogy a QR kódot a qr.php-ből töltse be,
-    // és a megfelelő konténerbe illessze az üzenetet.
+    // Felülírjuk az alapértelmezett showSuccess függvényt, hogy a QR kódot mindig megjelenítse,
+    // és helyesen kezelje a fájl ID-t.
     function showSuccess(response) {
         const successContainer = document.getElementById('success-messages-container');
         const successDiv = document.createElement('div');
         successDiv.style.cssText = "background: rgba(46, 204, 113, 0.1); border: 1px solid #2ecc71; border-radius: 10px; padding: 20px; margin-top: 20px; text-align: center; position: relative;";
-        
-        // A QR kód URL-jét az új qr.php-ra kell, hogy mutasson
-        // Az UploadHandler.php-ben a 'view_url'-t generáljuk, ami a View.php-re mutat. Ezt kell a qr.php-nek átadni.
+
+        // A QR kód URL-jét a qr.php-ra irányítjuk a kapott view_url-lel.
         const qrCodeUrlForGenerator = `<?php echo BASE_URL; ?>qr.php?data=${encodeURIComponent(response.view_url)}`;
 
-        let qrCodeHTML = `
+        // A QR kód HTML-jét mindig legeneráljuk.
+        const qrCodeHTML = `
             <div style="margin-bottom: 15px;">
                 <img src="${qrCodeUrlForGenerator}" alt="QR Kód" title="QR Kód a fájlhoz" style="width: 150px; height: 150px; border: 1px solid #ccc; border-radius: 5px; background: white; padding: 5px;">
             </div>`;
@@ -140,6 +140,7 @@ require_once __DIR__ . '/includes/header_public.php';
         successDiv.innerHTML = `
             <button onclick="this.parentElement.remove();" style="position: absolute; top: 10px; right: 10px; background: transparent; border: none; font-size: 1.5rem; color: #aaa; cursor: pointer; line-height:1;">×</button>
             <h3 style="color: #2ecc71; margin-bottom: 15px;">✅ Feltöltés sikeres!</h3>
+            <p style="margin-bottom: 10px;">Fájl ID: <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">${response.file_id}</code></p>
             ${qrCodeHTML}
             <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
                 <a href="${response.view_url}" target="_blank" class="btn">👁️ Megtekintés</a>
@@ -147,11 +148,9 @@ require_once __DIR__ . '/includes/header_public.php';
             </div>
         `;
         
-        // A success üzenetet a fő konténerbe illesztjük, nem az upload area-ba, hogy ne tűnjön el, ha újat töltünk fel.
         successContainer.prepend(successDiv);
     }
 </script>
-
 <!-- A végén betöltjük az uploader scriptet -->
 <script src="<?php echo BASE_URL; ?>assets/js/uploader.js"></script>
 

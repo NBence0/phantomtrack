@@ -443,6 +443,166 @@ switch ($action) {
         }
         break;
 
+    case 'delete_file':
+        $fileId = (int)($_POST['file_id'] ?? 0);
+
+        if ($fileId <= 0) {
+            $response['message'] = 'Érvénytelen fájl azonosító.';
+            break;
+        }
+
+        // 1. Jogosultság és fájl adatainak lekérdezése
+        $stmt = $db->prepare("SELECT id, stored_filename FROM files WHERE id = :id AND user_id = :user_id");
+        $stmt->execute([':id' => $fileId, ':user_id' => $currentUserId]);
+        $file = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$file) {
+            $response['message'] = 'A fájl nem található, vagy nincs jogosultságod a törléséhez.';
+            http_response_code(403); // Forbidden
+            break;
+        }
+
+        // 2. Törlés végrehajtása tranzakcióban
+        $db->beginTransaction();
+        try {
+            // A fizikai fájl törlése
+            $filePath = __DIR__ . '/../uploads/' . $file['stored_filename'];
+            if (file_exists($filePath)) {
+                unlink($filePath);
+            }
+            
+            // Thumbnail törlése, ha létezik (jövőbeli funkció)
+            $thumbnailPath = __DIR__ . '/../thumbnails/' . $file['id'] . '.jpg';
+            if (file_exists($thumbnailPath)) {
+                unlink($thumbnailPath);
+            }
+
+            // Adatbázis bejegyzés törlése
+            // Az ON DELETE CASCADE miatt a kapcsolódó activity_logs bejegyzések is törlődni fognak.
+            $deleteStmt = $db->prepare("DELETE FROM files WHERE id = :id");
+            $deleteStmt->execute([':id' => $fileId]);
+
+            $db->commit();
+            $response['success'] = true;
+            $response['message'] = 'A fájl sikeresen törölve.';
+            
+        } catch (Exception $e) {
+            $db->rollBack();
+            $response['message'] = 'Hiba történt a törlés során: ' . $e->getMessage();
+            http_response_code(500); // Internal Server Error
+            error_log("File deletion error for file ID {$fileId}: " . $e->getMessage());
+        }
+        break;
+
+    case 'file_activity_trends':
+        // A felhasználó összes fájljára vonatkozó trendek (feltöltés, letöltés, megtekintés)
+        $days = (int)($_GET['days'] ?? 30);
+        $stmt = $db->prepare("
+            SELECT 
+                DATE(al.timestamp) as activity_date,
+                SUM(CASE WHEN al.log_type = 'file_upload' THEN 1 ELSE 0 END) as upload_count,
+                SUM(CASE WHEN al.log_type = 'file_view' THEN 1 ELSE 0 END) as view_count,
+                SUM(CASE WHEN al.log_type = 'file_download' THEN 1 ELSE 0 END) as download_count
+            FROM activity_logs al
+            JOIN files f ON al.file_id = f.id
+            WHERE f.user_id = :user_id 
+            AND al.file_id IS NOT NULL
+            AND al.timestamp >= DATE_SUB(CURDATE(), INTERVAL :days DAY)
+            GROUP BY activity_date
+            ORDER BY activity_date ASC
+        ");
+        $stmt->execute([':user_id' => $currentUserId, ':days' => $days]);
+        $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Adatok előkészítése
+        $labels = []; $uploads = []; $views = []; $downloads = [];
+        $dataMap = [];
+        foreach($data as $row) {
+            $dataMap[$row['activity_date']] = [
+                'u' => (int)$row['upload_count'],
+                'v' => (int)$row['view_count'],
+                'd' => (int)$row['download_count']
+            ];
+        }
+        $period = new DatePeriod(new DateTime("-{$days} days"), new DateInterval('P1D'), new DateTime('+1 day'));
+        foreach ($period as $dt) {
+            $dateStr = $dt->format('Y-m-d');
+            $labels[] = $dateStr;
+            $uploads[] = $dataMap[$dateStr]['u'] ?? 0;
+            $views[] = $dataMap[$dateStr]['v'] ?? 0;
+            $downloads[] = $dataMap[$dateStr]['d'] ?? 0;
+        }
+        $output = ['labels' => $labels, 'uploads' => $uploads, 'views' => $views, 'downloads' => $downloads];
+        break;
+
+    case 'file_type_distribution':
+        // Segédfüggvény a MIME típusok "lefordítására"
+        function mapMimeToLabel($mime) {
+            // Gyakori Office és archív formátumok
+            if (strpos($mime, 'wordprocessingml') !== false) return 'Word Dokumentum';
+            if (strpos($mime, 'spreadsheetml') !== false) return 'Excel Táblázat';
+            if (strpos($mime, 'presentationml') !== false) return 'PowerPoint Prezentáció';
+            if (strpos($mime, 'pdf') !== false) return 'PDF Dokumentum';
+            if (strpos($mime, 'zip') !== false) return 'ZIP Archívum';
+            if (strpos($mime, 'rar') !== false) return 'RAR Archívum';
+            if (strpos($mime, '7z') !== false) return '7z Archívum';
+            if (strpos($mime, 'heic') !== false) return 'HEIC Kép';
+
+            // Fő kategóriák
+            if (strpos($mime, 'image/') === 0) return 'Képfájl (Egyéb)';
+            if (strpos($mime, 'video/') === 0) return 'Videó';
+            if (strpos($mime, 'audio/') === 0) return 'Hangfájl';
+            if (strpos($mime, 'text/') === 0) return 'Szöveges Fájl';
+            if (strpos($mime, 'application/octet-stream') === 0) return 'Ismeretlen Bináris';
+            if (strpos($mime, 'application/') === 0) return 'Alkalmazás/Dokumentum';
+            
+            return 'Egyéb';
+        }
+
+        $stmt = $db->prepare("SELECT mime_type FROM files WHERE user_id = :user_id");
+        $stmt->execute([':user_id' => $currentUserId]);
+        $mimeTypes = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        $labelCounts = [];
+        foreach ($mimeTypes as $mime) {
+            $label = mapMimeToLabel($mime);
+            if (!isset($labelCounts[$label])) {
+                $labelCounts[$label] = 0;
+            }
+            $labelCounts[$label]++;
+        }
+        
+        // Rendezés a darabszám szerint csökkenő sorrendben
+        arsort($labelCounts);
+        
+        $output = [
+            'labels' => array_keys($labelCounts),
+            'data' => array_values($labelCounts)
+        ];
+        break;
+
+    case 'hourly_activity_overall_files': // ÚJ BLOKK
+        $stmt = $db->prepare("
+            SELECT HOUR(al.timestamp) as hour, COUNT(al.id) as total_count
+            FROM activity_logs al
+            JOIN files f ON al.file_id = f.id
+            WHERE f.user_id = :user_id AND al.file_id IS NOT NULL
+            GROUP BY hour
+            ORDER BY hour ASC
+        ");
+        $stmt->execute([':user_id' => $currentUserId]);
+        $data = $stmt->fetchAll();
+        
+        $hourlyData = array_fill(0, 24, 0);
+        foreach ($data as $row) {
+            $hourlyData[(int)$row['hour']] = (int)$row['total_count'];
+        }
+        
+        $output = [
+            'labels' => array_map(function($h){ return str_pad($h, 2, '0', STR_PAD_LEFT) . ':00'; }, range(0,23)),
+            'data' => array_values($hourlyData)
+        ];
+        break;
 
     default:
         // Ha az 'action' ismeretlen, hibát adunk vissza

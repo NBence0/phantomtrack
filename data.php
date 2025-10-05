@@ -25,34 +25,6 @@ if (!$fileData) {
     http_response_code(404); exit('Fájl nem található.');
 }
 
-// 2. Hozzáférés-ellenőrzés (ugyanaz a logika, mint a View.php-ben)
-function validateDataAccess($fileData) {
-    // Ez a függvény a View.php-ben definiált 'validateFileAccess' egyszerűsített másolata.
-    // A jövőben érdemes lehet ezt egy közös helyre tenni.
-    $ip = getIpAddress();
-    $now = time();
-    $expiryTimestamp = $fileData['expiry_time'] ? strtotime($fileData['expiry_time']) : null;
-    
-    if ($expiryTimestamp && $now > $expiryTimestamp) return false;
-    
-    $ipBlacklist = $fileData['ip_blacklist'] ? json_decode($fileData['ip_blacklist'], true) : [];
-    if (!empty($ipBlacklist) && in_array($ip, $ipBlacklist)) return false;
-    
-    $ipWhitelist = $fileData['ip_whitelist'] ? json_decode($fileData['ip_whitelist'], true) : [];
-    if (!empty($ipWhitelist) && !in_array($ip, $ipWhitelist)) return false;
-    
-    if ($fileData['password_hash']) {
-        session_start();
-        if (!isset($_SESSION['authenticated_files'][$fileData['id']]) || (time() - $_SESSION['authenticated_files'][$fileData['id']] > 3600)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-if (!validateDataAccess($fileData)) {
-    http_response_code(403); exit('Hozzáférés megtagadva.');
-}
 
 // 3. Fájl kiszolgálása
 $filePath = __DIR__ . '/uploads/' . $fileData['stored_filename'];

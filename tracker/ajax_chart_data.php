@@ -1746,6 +1746,78 @@ switch ($action) {
             'active_days_in_selected_period' => (int)$active_days_in_period,
         ];
         break;
+        
+case 'daily_activity_file':
+    $fileId = (int)($_GET['file_id'] ?? 0);
+    // Jogosultság-ellenőrzés: a fájl a felhasználóé?
+    $fileCheckStmt = $db->prepare("SELECT id FROM files WHERE id = :file_id AND user_id = :user_id");
+    $fileCheckStmt->execute([':file_id' => $fileId, ':user_id' => $currentUserId]);
+    if(!$fileCheckStmt->fetch()) {
+         $output = ['error' => 'Nincs jogosultság a fájl adataihoz.'];
+         break;
+    }
+
+    $days = 30; // Alapértelmezetten az elmúlt 30 nap
+    $stmt = $db->prepare("
+        SELECT DATE(timestamp) as activity_date,
+               SUM(CASE WHEN log_type = 'file_view' THEN 1 ELSE 0 END) as view_count,
+               SUM(CASE WHEN log_type = 'file_download' THEN 1 ELSE 0 END) as download_count
+        FROM activity_logs
+        WHERE file_id = :file_id AND timestamp >= DATE_SUB(CURDATE(), INTERVAL :days DAY)
+        GROUP BY activity_date
+        ORDER BY activity_date ASC
+    ");
+    $stmt->execute([':file_id' => $fileId, ':days' => $days]);
+    $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Adatok előkészítése a Chart.js számára
+    $labels = [];
+    $views = [];
+    $downloads = [];
+    $dataMap = [];
+    foreach($data as $row) {
+        $dataMap[$row['activity_date']] = ['v' => (int)$row['view_count'], 'd' => (int)$row['download_count']];
+    }
+    $period = new DatePeriod(new DateTime("-{$days} days"), new DateInterval('P1D'), new DateTime('+1 day'));
+    foreach ($period as $dt) {
+        $dateStr = $dt->format('Y-m-d');
+        $labels[] = $dateStr;
+        $views[] = $dataMap[$dateStr]['v'] ?? 0;
+        $downloads[] = $dataMap[$dateStr]['d'] ?? 0;
+    }
+    $output = ['labels' => $labels, 'views' => $views, 'downloads' => $downloads];
+    break;
+
+case 'hourly_activity_file':
+    $fileId = (int)($_GET['file_id'] ?? 0);
+    // Jogosultság-ellenőrzés (ismét)
+    $fileCheckStmt = $db->prepare("SELECT id FROM files WHERE id = :file_id AND user_id = :user_id");
+    $fileCheckStmt->execute([':file_id' => $fileId, ':user_id' => $currentUserId]);
+    if(!$fileCheckStmt->fetch()) {
+         $output = ['error' => 'Nincs jogosultság a fájl adataihoz.'];
+         break;
+    }
+
+    $stmt = $db->prepare("
+        SELECT HOUR(timestamp) as hour, COUNT(id) as total_count
+        FROM activity_logs
+        WHERE file_id = :file_id AND (log_type = 'file_view' OR log_type = 'file_download')
+        GROUP BY hour
+        ORDER BY hour ASC
+    ");
+    $stmt->execute([':file_id' => $fileId]);
+    $data = $stmt->fetchAll();
+    
+    $hourlyData = array_fill(0, 24, 0);
+    foreach ($data as $row) {
+        $hourlyData[(int)$row['hour']] = (int)$row['total_count'];
+    }
+    
+    $output = [
+        'labels' => array_map(function($h){ return str_pad($h, 2, '0', STR_PAD_LEFT) . ':00'; }, range(0,23)),
+        'data' => array_values($hourlyData)
+    ];
+    break;
 }
 
 echo json_encode($output);

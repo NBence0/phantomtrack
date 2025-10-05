@@ -146,13 +146,19 @@ if (isset($_POST['chunk'])) {
             $tokenUpdateStmt = $db->prepare($tokenUpdateSql);
             $tokenUpdateStmt->execute([':count' => $newUploadCount, ':id' => $token['id']]);
             
-            // 5. Naplózás
             logActivity('file_upload', $token['id'], $finalFileId);
+            
+            // ÚJ: INDEXKÉP GENERÁLÁSA
+            if (strpos($mimeType, 'image/') === 0) {
+                $thumbnailPath = __DIR__ . '/thumbnails/' . $finalFileId . '.webp';
+                createThumbnail($finalPath, $thumbnailPath);
+            }
 
             $db->commit();
             
             // Sikeres válasz
             $response['success'] = true;
+            $response['file_id'] = $viewToken; // <-- EZ AZ ÚJ SOR
             $response['message'] = 'Fájl sikeresen feltöltve.';
             $response['view_url'] = BASE_URL . 'View.php?id=' . $viewToken;
             echo json_encode($response);
@@ -216,11 +222,20 @@ try {
     $tokenUpdateStmt->execute([':count' => $newUploadCount, ':id' => $token['id']]);
 
     // 5. Naplózás
+// ...
     logActivity('file_upload', $token['id'], $newFileId);
+    
+    // ÚJ: INDEXKÉP GENERÁLÁSA
+    if (strpos($mimeType, 'image/') === 0) {
+        $thumbnailPath = __DIR__ . '/thumbnails/' . $newFileId . '.webp';
+        $sourcePath = $uploadPath . $storedFileName;
+        createThumbnail($sourcePath, $thumbnailPath);
+    }
 
     $db->commit();
     
     $response['success'] = true;
+    $response['file_id'] = $viewToken;
     $response['message'] = 'Fájl sikeresen feltöltve.';
     $response['view_url'] = BASE_URL . 'View.php?id=' . $viewToken;
     echo json_encode($response);

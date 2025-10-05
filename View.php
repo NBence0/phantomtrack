@@ -1,5 +1,5 @@
 <?php
-// Hely: /View.php
+// Hely: /View.php (Frissítve)
 
 // === FÜGGŐSÉGEK ===
 require_once __DIR__ . '/config.php';
@@ -15,64 +15,27 @@ $errorReason = null;
 $validation = ['valid' => false, 'reason' => 'Érvénytelen hozzáférés.'];
 
 if (empty($viewToken)) {
-    http_response_code(400);
-    die('Hiányzó fájl azonosító (view token).');
+    http_response_code(400); die('Hiányzó fájl azonosító (view token).');
 }
 
-// 1. Fájl adatainak lekérdezése
 $stmt = $db->prepare(
     "SELECT id, user_id, original_filename, stored_filename, file_size, mime_type, upload_timestamp, download_count, 
             password_hash, expiry_time, max_downloads, one_time_download, 
-            ip_whitelist, ip_blacklist 
+            ip_whitelist, ip_blacklist, view_token
      FROM files WHERE view_token = :token"
 );
 $stmt->execute([':token' => $viewToken]);
 $fileData = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$fileData) {
-    http_response_code(404);
-    die('Fájl nem található.');
+    http_response_code(404); die('Fájl nem található.');
 }
 
-// HELPER FÜGGVÉNY A VALIDÁCIÓHOZ (a PHP blokkon belül)
-function validateFileAccess($fileData) {
-    $fileId = $fileData['id'];
-    $ip = getIpAddress();
-    $now = time();
-    $expiryTimestamp = $fileData['expiry_time'] ? strtotime($fileData['expiry_time']) : null;
-    
-    if ($expiryTimestamp && $now > $expiryTimestamp) {
-        logActivity('file_view_expired', null, $fileId);
-        return ['valid' => false, 'reason' => 'A fájl lejárt.'];
-    }
-    
-    $ipBlacklist = $fileData['ip_blacklist'] ? json_decode($fileData['ip_blacklist'], true) : [];
-    if (!empty($ipBlacklist) && in_array($ip, $ipBlacklist)) {
-        logActivity('file_view_denied', null, $fileId);
-        return ['valid' => false, 'reason' => 'Hozzáférés megtagadva (IP Blacklist).'];
-    }
-    
-    $ipWhitelist = $fileData['ip_whitelist'] ? json_decode($fileData['ip_whitelist'], true) : [];
-    if (!empty($ipWhitelist) && !in_array($ip, $ipWhitelist)) {
-        logActivity('file_view_denied', null, $fileId);
-        return ['valid' => false, 'reason' => 'Hozzáférés megtagadva (IP Whitelist).'];
-    }
-    
-    if ($fileData['password_hash']) {
-        session_start();
-        if (!isset($_SESSION['authenticated_files'][$fileId]) || (time() - $_SESSION['authenticated_files'][$fileId] > 3600)) {
-            if (isset($_SESSION['authenticated_files'][$fileId])) unset($_SESSION['authenticated_files'][$fileId]);
-            return ['valid' => false, 'reason' => 'password_required'];
-        }
-    }
-    
-    return ['valid' => true];
-}
-
+// A központosított validációs függvény hívása
 $validation = validateFileAccess($fileData);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['password'])) {
-    session_start();
+    if (session_status() == PHP_SESSION_NONE) session_start();
     if (password_verify($_POST['password'], $fileData['password_hash'])) {
         $_SESSION['authenticated_files'][$fileData['id']] = time();
         header("Location: View.php?id=" . urlencode($viewToken));
@@ -91,44 +54,45 @@ if ($isDownloadRequest) {
 if ($validation['valid']) {
     logActivity('file_view', null, $fileData['id']); 
 }
+
+// === HTML KIMENET ===
+$pageTitle = escape($fileData['original_filename']);
+require_once __DIR__ . '/includes/header_public.php'; 
+// A header_public.php már tartalmazza a doctype, html, head, és a body nyitó tagot,
+// valamint a main-content nyitó div-et is.
+
+// A Prism.js és Marked.js linkeket a header_public-ba kellene áthelyezni, ha máshol is kell,
+// vagy itt hagyjuk, mert csak ezen az oldalon használjuk. Most itt hagyjuk.
 ?>
-<!DOCTYPE html>
-<html lang="hu">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo escape($fileData['original_filename']); ?> - PhantomTrack</title>
-    <!-- Külső CSS fájl betöltése -->
-    <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/view.css">
-    <!-- CDN-ek a megtekintéshez (Prism.js, Marked.js) -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css" rel="stylesheet" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script> 
-</head>
-<body>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css" rel="stylesheet" />
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/view.css">
 
 <?php if (!$validation['valid']): ?>
-    <div class="password-form">
-        <?php if ($validation['reason'] === 'password_required'): ?>
-            <div class="lock-icon">🔒</div>
-            <h2 class="form-title">Védett fájl</h2>
-            <p class="form-desc">Ez a fájl jelszóval védett. Kérjük, adja meg a jelszót a hozzáféréshez.</p>
-            <?php if ($errorReason): ?><div class="error-message"><?php echo escape($errorReason); ?></div><?php endif; ?>
-            <form method="POST">
-                <div class="form-group"><input type="password" name="password" class="form-input" placeholder="Jelszó" required autofocus></div>
-                <button type="submit" class="btn">🔓 Hozzáférés</button>
-            </form>
-        <?php else: http_response_code(403); ?>
-            <div class="lock-icon" style="font-size:3rem; color:#ff4757;">⛔</div>
-            <h2 class="form-title" style="color: #ff4757;">Hozzáférés Megtagadva</h2>
-            <p class="form-desc"><?php echo escape($validation['reason']); ?></p>
-        <?php endif; ?>
+    <div class="password-form-container">
+        <div class="password-form glass-effect">
+            <?php if ($validation['reason'] === 'password_required'): ?>
+                <div class="lock-icon">🔒</div>
+                <h2 class="form-title">Védett fájl</h2>
+                <p class="form-desc">Ez a fájl jelszóval védett. Kérjük, adja meg a jelszót a hozzáféréshez.</p>
+                <?php if ($errorReason): ?><div class="message error-message"><?php echo escape($errorReason); ?></div><?php endif; ?>
+                <form method="POST">
+                    <div class="form-group"><input type="password" name="password" class="form-input" placeholder="Jelszó" required autofocus></div>
+                    <button type="submit" class="btn">🔓 Hozzáférés</button>
+                </form>
+            <?php else: http_response_code(403); ?>
+                <div class="lock-icon" style="font-size:3rem; color:#ff4757;">⛔</div>
+                <h2 class="form-title" style="color: #ff4757;">Hozzáférés Megtagadva</h2>
+                <p class="form-desc"><?php echo escape($validation['reason']); ?></p>
+            <?php endif; ?>
+        </div>
     </div>
-    <?php exit; // Itt a script véget ér, ha a validáció sikertelen ?>
+    <?php 
+    require_once __DIR__ . '/includes/footer_public.php';
+    exit; // Itt a script véget ér
+    ?>
 <?php endif; ?>
 
-<div class="container">
+<div class="view-container">
     <div class="header">
         <div class="file-info">
             <div class="file-icon"><?= getFileIcon($fileData['mime_type'], $fileData['original_filename']) ?></div>
@@ -136,7 +100,6 @@ if ($validation['valid']) {
                 <h1><?= escape($fileData['original_filename']) ?></h1>
                 <div class="file-meta">
                     <?= escape($fileData['mime_type']) ?> • <?= formatBytes($fileData['file_size']) ?> • 
-                    Feltöltve: <?= escape(formatTimestamp($fileData['upload_timestamp'], 'Y-m-d H:i')) ?> •
                     Letöltések: <?= escape($fileData['download_count']) ?>
                     <?php if ($fileData['expiry_time']): ?>
                         • Lejár: <?= escape(formatTimestamp($fileData['expiry_time'], 'Y-m-d H:i')) ?>
@@ -147,17 +110,14 @@ if ($validation['valid']) {
         
         <div class="actions">
             <a href="?id=<?= $viewToken ?>&download=1" class="btn">📥 Letöltés</a>
-            <a href="qr.php?data=<?= urlencode(BASE_URL . 'View.php?id=' . $viewToken) ?>" target="_blank" class="btn btn-secondary">📱 QR kód</a>
-            <button onclick="copyToClipboard('<?= BASE_URL . 'View.php?id=' . $viewToken ?>')" class="btn btn-secondary">📋 Link másolás</button>
-            <a href="<?php echo BASE_URL; ?>tracker/dashboard.php" class="btn btn-secondary">🏠 Irányítópult</a>
+            <a href="<?php echo BASE_URL; ?>qr.php?data=<?= urlencode(BASE_URL . 'View.php?id=' . $viewToken) ?>" target="_blank" class="btn btn-secondary">📱 QR kód</a>
+            <button onclick="copyFileLink('<?= BASE_URL . 'View.php?id=' . $viewToken ?>')" class="btn btn-secondary">📋 Link másolás</button>
         </div>
     </div>
     
-    <div class="preview-container">
+    <div class="preview-container glass-effect">
         <?php
-        $fileIdForPreview = $fileData['id'];
-        $dataUrl = 'data.php?id=' . urlencode($viewToken); // Itt a viewToken kell
-
+        $dataUrl = BASE_URL . 'data.php?id=' . urlencode($viewToken);
         if (strpos($fileData['mime_type'], 'image/') === 0): ?>
             <img src="<?= $dataUrl ?>&type=raw" alt="<?= escape($fileData['original_filename']) ?>" class="preview-image">
         <?php elseif (strpos($fileData['mime_type'], 'video/') === 0): ?>
@@ -180,8 +140,8 @@ if ($validation['valid']) {
         <?php endif; ?>
     </div>
     
-        <div class="stats">
-         <div class="stat-card">
+    <div class="stats">
+        <div class="stat-card">
             <div class="stat-value"><?= formatBytes($fileData['file_size']) ?></div>
             <div class="stat-label">Méret</div>
         </div>
@@ -223,14 +183,14 @@ if ($validation['valid']) {
         <?php endif; ?>
     </div>
 </div>
-    
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script> 
 <script>
-    function copyToClipboard(text) {
+    function copyFileLink(text) { // A globális script.js-ből is jöhetne
         navigator.clipboard.writeText(text).then(() => {
-            // A showDynamicMessage a PhantomTrack globális scriptjéből jön
-            if(typeof showDynamicMessage === 'function') {
-                showDynamicMessage('Link vágólapra másolva!', 'success');
-            } else { alert('Link vágólapra másolva!'); }
+            alert('Link vágólapra másolva!');
         });
     }
 
@@ -239,27 +199,22 @@ if ($validation['valid']) {
         const markdownPreviewContainer = document.getElementById('markdownPreviewContainer');
 
         if (textPreviewCode) {
-            fetch('<?= $dataUrl ?>&type=text')
-                .then(response => response.text())
-                .then(text => {
-                    textPreviewCode.textContent = text;
-                    if (typeof Prism !== 'undefined') Prism.highlightElement(textPreviewCode);
-                });
+            fetch('<?= $dataUrl ?>&type=text').then(r => r.text()).then(text => {
+                textPreviewCode.textContent = text;
+                if (typeof Prism !== 'undefined') Prism.highlightElement(textPreviewCode);
+            });
         }
         if (markdownPreviewContainer) {
-            fetch('<?= $dataUrl ?>&type=text')
-                .then(response => response.text())
-                .then(text => {
-                    if (typeof marked !== 'undefined') {
-                        markdownPreviewContainer.innerHTML = marked.parse(text);
-                        if (typeof Prism !== 'undefined') {
-                             markdownPreviewContainer.querySelectorAll('pre code').forEach(Prism.highlightElement);
-                        }
+            fetch('<?= $dataUrl ?>&type=text').then(r => r.text()).then(text => {
+                if (typeof marked !== 'undefined') {
+                    markdownPreviewContainer.innerHTML = marked.parse(text);
+                    if (typeof Prism !== 'undefined') {
+                         markdownPreviewContainer.querySelectorAll('pre code').forEach(Prism.highlightElement);
                     }
-                });
+                }
+            });
         }
     });
 </script>
 
-</body>
-</html>
+<?php require_once __DIR__ . '/includes/footer_public.php'; ?>
