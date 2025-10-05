@@ -286,6 +286,164 @@ switch ($action) {
         }
         break;
 
+
+    case 'create_permanent_request':
+        if (!isLoggedIn()) { $response['message'] = 'Nincs bejelentkezve.'; break; }
+        
+        $name = trim($_POST['name'] ?? '');
+        if (empty($name)) {
+            $response['message'] = 'A link neve nem lehet üres.';
+            break;
+        }
+
+        $tokenValue = generateUniqueToken();
+        $stmt = $db->prepare(
+            "INSERT INTO tokens (user_id, token_type, token_value, name, is_active, max_uploads) 
+             VALUES (:user_id, 'file_request_permanent', :token_value, :name, 1, NULL)"
+        );
+        if ($stmt->execute([
+            ':user_id' => $currentUserId,
+            ':token_value' => $tokenValue,
+            ':name' => $name
+        ])) {
+            $response['success'] = true;
+            $response['message'] = 'Állandó feltöltő link sikeresen létrehozva.';
+        } else {
+            $response['message'] = 'Adatbázis hiba történt a link létrehozásakor.';
+            http_response_code(500);
+        }
+        break;
+
+// tracker/ajax_actions.php
+
+    case 'create_limited_request':
+        if (!isLoggedIn()) { $response['message'] = 'Nincs bejelentkezve.'; break; }
+
+        // 1. Változók definiálása a POST adatokból
+        $name = trim($_POST['name'] ?? '');
+        $maxUploads = (int)($_POST['max_uploads'] ?? 1);
+        $expiryTime = !empty($_POST['expiry_time']) ? $_POST['expiry_time'] : null;
+
+        // 2. Validáció a már definiált változókon
+        if (empty($name)) {
+            $response['message'] = 'A bekérő neve nem lehet üres.';
+            break;
+        }
+        if ($maxUploads <= 0) {
+            $response['message'] = 'A maximális feltöltések számának pozitívnak kell lennie.';
+            break;
+        }
+        // Opcionális: szerver oldali validáció a dátumra
+        if ($expiryTime !== null && (DateTime::createFromFormat('Y-m-d H:i', $expiryTime) === false || strtotime($expiryTime) < time())) {
+            $response['message'] = 'Érvénytelen vagy múltbeli lejárati dátum.';
+            break;
+        }
+
+        // 3. Adatbázis művelet
+        $tokenValue = generateUniqueToken();
+        $stmt = $db->prepare(
+            "INSERT INTO tokens (user_id, token_type, token_value, name, is_active, max_uploads, expiry_time) 
+             VALUES (:user_id, 'file_request_limited', :token_value, :name, 1, :max_uploads, :expiry_time)"
+        );
+        if ($stmt->execute([
+            ':user_id' => $currentUserId,
+            ':token_value' => $tokenValue,
+            ':name' => $name,
+            ':max_uploads' => $maxUploads,
+            ':expiry_time' => $expiryTime
+        ])) {
+            $response['success'] = true;
+            $response['message'] = 'Korlátozott fájlbekérő sikeresen létrehozva.';
+        } else {
+            $response['message'] = 'Adatbázis hiba történt a bekérő létrehozásakor.';
+            http_response_code(500);
+        }
+        break;
+
+    case 'delete_file_request': // Ez mindkét típusú link törlésére jó lesz
+        if (!isLoggedIn()) { $response['message'] = 'Nincs bejelentkezve.'; break; }
+
+        $tokenId = (int)($_POST['token_id'] ?? 0);
+        if ($tokenId <= 0) {
+            $response['message'] = 'Érvénytelen token ID.';
+            break;
+        }
+
+        // Fontos a jogosultság-ellenőrzés!
+        $stmt = $db->prepare("DELETE FROM tokens WHERE id = :id AND user_id = :user_id AND token_type LIKE 'file_request_%'");
+        if ($stmt->execute([':id' => $tokenId, ':user_id' => $currentUserId])) {
+            if ($stmt->rowCount() > 0) {
+                $response['success'] = true;
+                $response['message'] = 'A bekérő link sikeresen törölve.';
+            } else {
+                $response['message'] = 'A link nem található, vagy nincs jogosultságod a törléséhez.';
+            }
+        } else {
+            $response['message'] = 'Adatbázis hiba történt a törlés során.';
+            http_response_code(500);
+        }
+        break;
+
+    case 'get_limited_request_details':
+        if (!isLoggedIn()) { $response['message'] = 'Nincs bejelentkezve.'; break; }
+        $tokenId = (int)($_POST['token_id'] ?? 0);
+        
+        if ($tokenId <= 0) { $response['message'] = 'Érvénytelen ID.'; break; }
+        
+        $stmt = $db->prepare("SELECT id, name, max_uploads, expiry_time FROM tokens WHERE id = :id AND user_id = :user_id AND token_type = 'file_request_limited'");
+        $stmt->execute([':id' => $tokenId, ':user_id' => $currentUserId]);
+        $token = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($token) {
+            $response['success'] = true;
+            // A dátumot a flatpickr számára megfelelő formátumban adjuk vissza
+            if ($token['expiry_time']) {
+                $token['expiry_time'] = (new DateTime($token['expiry_time']))->format('Y-m-d H:i');
+            }
+            $response['token'] = $token;
+        } else {
+            $response['message'] = 'Bekérő nem található vagy nincs jogosultságod hozzá.';
+        }
+        break;
+
+    case 'update_limited_request':
+        if (!isLoggedIn()) { $response['message'] = 'Nincs bejelentkezve.'; break; }
+
+        $tokenId = (int)($_POST['token_id'] ?? 0);
+        $name = trim($_POST['name'] ?? '');
+        $maxUploads = (int)($_POST['max_uploads'] ?? 1);
+        $expiryTime = !empty($_POST['expiry_time']) ? $_POST['expiry_time'] : null;
+
+        if ($tokenId <= 0 || empty($name) || $maxUploads <= 0) {
+            $response['message'] = 'Hiányzó vagy érvénytelen adatok.';
+            break;
+        }
+
+        if ($expiryTime !== null && DateTime::createFromFormat('Y-m-d H:i', $expiryTime) === false) {
+            $response['message'] = 'Érvénytelen dátumformátum.';
+            break;
+        }
+
+        $stmt = $db->prepare(
+            "UPDATE tokens SET name = :name, max_uploads = :max_uploads, expiry_time = :expiry_time 
+             WHERE id = :id AND user_id = :user_id AND token_type = 'file_request_limited'"
+        );
+        if ($stmt->execute([
+            ':name' => $name,
+            ':max_uploads' => $maxUploads,
+            ':expiry_time' => $expiryTime,
+            ':id' => $tokenId,
+            ':user_id' => $currentUserId
+        ])) {
+            $response['success'] = true;
+            $response['message'] = 'A bekérő adatai sikeresen frissítve.';
+        } else {
+            $response['message'] = 'Adatbázis hiba történt a frissítés során.';
+            http_response_code(500);
+        }
+        break;
+
+
     default:
         // Ha az 'action' ismeretlen, hibát adunk vissza
         $response['message'] = 'Ismeretlen művelet lett megadva.';

@@ -249,7 +249,10 @@ include __DIR__ . '/../includes/tokens_modals.php';
                         <button class="btn btn-small btn-copy" onclick="copyToClipboard(this.previousElementSibling)"><i class="far fa-copy"></i></button>
                     </td>
                     <td data-label="Leírás">
-                        <?php echo nl2br(escape(substr($token['description'], 0, 50) . (strlen($token['description']) > 50 ? '...' : ''))); ?>
+                        <?php 
+                            $description = $token['description'] ?? ''; // Ha null, legyen üres string
+                            echo nl2br(escape(substr($description, 0, 50) . (strlen($description) > 50 ? '...' : ''))); 
+                        ?>
                     </td>
                     <td data-label="Státusz">
                         <?php if ($token['is_active']): ?>

@@ -1,0 +1,221 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
+    color: #ffffff;
+    margin: 0;
+    padding: 20px;
+    min-height: 100vh;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.header {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 20px;
+    border-radius: 15px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(78, 205, 196, 0.2);
+}
+
+.file-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.file-icon {
+    font-size: 2rem;
+}
+
+.file-details h1 {
+    margin: 0 0 5px 0;
+    font-size: 1.5rem;
+    color: #ffffff;
+}
+
+.file-meta {
+    color: #8892b0;
+    font-size: 0.9rem;
+}
+
+.actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.btn {
+    background: linear-gradient(45deg, #00d4ff, #4ecdc4);
+    color: #0f0f23;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 20px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(0, 212, 255, 0.3);
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+    border: 1px solid #4ecdc4;
+}
+
+.btn-secondary:hover {
+    background: rgba(78, 205, 196, 0.2);
+}
+
+.preview-container {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(78, 205, 196, 0.2);
+    text-align: center;
+}
+
+.preview-image {
+    max-width: 100%;
+    max-height: 70vh;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.preview-video {
+    max-width: 100%;
+    max-height: 70vh;
+    border-radius: 10px;
+}
+
+.preview-audio {
+    width: 100%;
+    max-width: 500px;
+}
+
+.preview-pdf {
+    width: 100%;
+    height: 70vh;
+    border: none;
+    border-radius: 10px;
+}
+
+.preview-text {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 20px;
+    border-radius: 10px;
+    text-align: left;
+    overflow: auto;
+    max-height: 60vh;
+    font-family: 'Courier New', monospace;
+    white-space: pre-wrap;
+}
+
+.file-icon-large {
+    font-size: 5rem;
+    color: #4ecdc4;
+    margin-bottom: 20px;
+}
+
+.no-preview {
+    color: #8892b0;
+    font-size: 1.1rem;
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.stat-card {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 15px;
+    border-radius: 10px;
+    border: 1px solid rgba(78, 205, 196, 0.2);
+    text-align: center;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #00d4ff;
+}
+
+.stat-label {
+    color: #8892b0;
+    font-size: 0.9rem;
+    margin-top: 5px;
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+    
+    .actions {
+        justify-content: center;
+    }
+    
+    .btn {
+        flex: 1;
+        justify-content: center;
+        min-width: 120px;
+    }
+}
+
+/* ... meglévő stílusok ... */
+.preview-markdown {
+    background: rgba(255, 255, 255, 0.03);
+    color: #e0e0e0;
+    padding: 20px;
+    border-radius: 10px;
+    text-align: left;
+    overflow: auto;
+    max-height: 70vh;
+    line-height: 1.6;
+    border: 1px solid rgba(78, 205, 196, 0.2);
+}
+.preview-markdown h1, .preview-markdown h2, .preview-markdown h3 { margin-top: 1em; margin-bottom: 0.5em; color: #4ecdc4; border-bottom: 1px solid rgba(78, 205, 196, 0.3); padding-bottom: 0.3em;}
+.preview-markdown p { margin-bottom: 1em; }
+.preview-markdown code { background-color: rgba(0,0,0,0.2); padding: 0.2em 0.4em; border-radius: 3px; font-family: 'Consolas', monospace; }
+.preview-markdown pre { background-color: rgba(0,0,0,0.3); padding: 1em; border-radius: 5px; overflow-x: auto; }
+.preview-markdown pre code { background-color: transparent; padding: 0; }
+.preview-markdown blockquote { border-left: 3px solid #4ecdc4; margin-left: 0; padding-left: 1em; color: #bdc3c7; }
+.preview-markdown ul, .preview-markdown ol { margin-left: 2em; margin-bottom: 1em; }
+.preview-markdown table { border-collapse: collapse; margin-bottom: 1em; width: auto; }
+.preview-markdown th, .preview-markdown td { border: 1px solid rgba(78, 205, 196, 0.4); padding: 0.5em; }
+.preview-markdown th { background-color: rgba(78, 205, 196, 0.1); }
+/* A .preview-text stílusát is igazíthatod a Prism témához */
+.preview-text {
+    background: #272822; /* Okaidia téma háttere */
+    color: #f8f8f2;     /* Okaidia téma alap szövegszíne */
+    padding: 1px; /* Hagyjuk a <pre> paddingját érvényesülni */
+    border-radius: 10px;
+    text-align: left;
+    overflow: auto;
+    max-height: 60vh;
+    font-family: 'Consolas', 'Monaco', 'Andale Mono', 'Ubuntu Mono', monospace;
+    white-space: pre-wrap; /* Sortörés megmarad */
+     border: 1px solid rgba(78, 205, 196, 0.2);
+}
+.preview-text pre {
+    margin: 0;
+    padding: 20px; /* Belső padding a kódnak */
+    border-radius: 10px;
+    background: transparent !important; /* Fontos, hogy a Prism témája érvényesüljön a pre-n belül */
+}

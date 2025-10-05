@@ -1128,6 +1128,7 @@ switch ($action) {
         $tokenId = (int)($_GET['token_id'] ?? 0);
         $startDate = $_GET['start_date'] ?? null;
         $endDate = $_GET['end_date'] ?? null;
+        
         $limit = (int)($_GET['limit'] ?? 7);
         if ($limit < 3) $limit = 3;
         if ($limit > 20) $limit = 20;
@@ -1166,10 +1167,10 @@ switch ($action) {
         }
 
         $sql .= " GROUP BY referrer_domain 
-                  HAVING referrer_domain IS NOT NULL AND referrer_domain != '' -- Dupla ellenőrzés
-                  ORDER BY open_count DESC 
-                  LIMIT :limit";
-        $params[':limit'] = $limit;
+                HAVING referrer_domain IS NOT NULL AND referrer_domain != ''
+                ORDER BY open_count DESC 
+                LIMIT " . $limit;
+        //$params[':limit'] = $limit;
 
         try {
             $stmt = $db->prepare($sql);

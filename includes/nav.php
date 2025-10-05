@@ -7,7 +7,7 @@ $category_id_from_url = null;
 if (in_array($current_page, ['tokens.php', 'files.php']) && isset($_GET['category_id'])) {
     $category_id_from_url = (int)$_GET['category_id'];
 }
-
+$category_link_target_page = in_array($current_page, ['files.php', 'file_requests.php', 'permanent_requests.php']) ? 'files.php' : 'tokens.php';
 // Csak akkor kérdezzük le a kategóriákat, ha be van lépve a felhasználó
 $navCategories = [];
 if (function_exists('getCurrentUserId') && getCurrentUserId()) {
@@ -44,10 +44,10 @@ if (function_exists('getCurrentUserId') && getCurrentUserId()) {
                     <a href="<?php echo BASE_URL; ?>tracker/tokens.php" title="Követő Pixelek"><i class="fas fa-crosshairs"></i><span>Tokenek</span></a>
                 </li>
                 <li <?php if ($current_page == 'file_requests.php') echo 'class="active"'; ?>>
-                    <a href="<?php echo BASE_URL; ?>tracker/file_requests.php" title="Egyszeri Fájlbekérő Linkek"><i class="fas fa-file-import"></i><span>Egyszeri Bekérők</span></a>
+                    <a href="<?php echo BASE_URL; ?>tracker/file_requests.php" title="Többszöri Bekérők"><i class="fas fa-file-import"></i><span>Többszöri Bekérők</span></a>
                 </li>
                  <li <?php if ($current_page == 'permanent_requests.php') echo 'class="active"'; ?>>
-                    <a href="<?php echo BASE_URL; ?>tracker/permanent_requests.php" title="Állandó Feltöltő Link"><i class="fas fa-link"></i><span>Állandó Link</span></a>
+                    <a href="<?php echo BASE_URL; ?>tracker/permanent_requests.php" title="Állandó Feltöltő Linkek"><i class="fas fa-link"></i><span>Állandó Bekérők</span></a>
                 </li>
             </ul>
         </li>
@@ -66,7 +66,7 @@ if (function_exists('getCurrentUserId') && getCurrentUserId()) {
                     <?php foreach ($navCategories as $cat): ?>
                         <li <?php if ($category_id_from_url === $cat['id']) echo 'class="active"'; ?>>
                              <!-- A link attól függően változik, hogy a files.php-n vagy a tokens.php-n vagyunk -->
-                            <a href="<?php echo BASE_URL . 'tracker/' . ($current_page == 'files.php' ? 'files.php' : 'tokens.php'); ?>?category_id=<?php echo $cat['id']; ?>"><?php echo escape($cat['name']); ?></a>
+                            <a href="<?php echo BASE_URL . 'tracker/' . $category_link_target_page; ?>?category_id=<?php echo $cat['id']; ?>"><?php echo escape($cat['name']); ?></a>
                         </li>
                     <?php endforeach; ?>
                 </ul>

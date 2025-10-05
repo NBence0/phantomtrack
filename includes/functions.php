@@ -14,7 +14,7 @@ function formatTimestamp($timestamp, $format = 'Y-m-d H:i:s') {
 }
 
 function escape($html) {
-    return htmlspecialchars($html, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    return htmlspecialchars($html ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
 // Egyszerű User-Agent elemzés (nagyon alap)
@@ -265,5 +265,136 @@ function setAppSetting($key, $value) {
     $stmt = $db->prepare("INSERT INTO app_settings (setting_key, setting_value) VALUES (:key, :value)
                           ON DUPLICATE KEY UPDATE setting_value = :value");
     return $stmt->execute([':key' => $key, ':value' => $value]);
+}
+/**
+ * Központi függvény bármilyen típusú aktivitás naplózására.
+ * Rögzíti az eseményt a részletes kliens adatokkal együtt.
+ *
+ * @param string $logType Az esemény típusa ('pixel', 'file_upload', 'file_view', 'file_download').
+ * @param int|null $tokenId A kapcsolódó token ID-ja (ha van).
+ * @param int|null $fileId A kapcsolódó fájl ID-ja (ha van).
+ * @return void
+ */
+function logActivity($logType, $tokenId = null, $fileId = null) {
+    try {
+        $db = getDB();
+        $ipAddress = getIpAddress();
+        $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'N/A';
+        // A Referrer-t a fájlfeltöltésnél és letöltésnél óvatosan kell kezelni, lehet, hogy nem releváns.
+        $referrer = $_SERVER['HTTP_REFERER'] ?? 'N/A';
+
+        $uaDetails = getDetailedUserAgentInfo($userAgent);
+        $geoDetails = getGeolocationFromIp($ipAddress);
+
+        $logStmt = $db->prepare("
+            INSERT INTO activity_logs 
+            (log_type, token_id, file_id, ip_address, user_agent, referrer, browser_name, browser_version, os_name, os_version, device_type, device_brand, device_model, country_code, city_name, isp, timestamp) 
+            VALUES (:log_type, :token_id, :file_id, :ip, :ua, :ref, :b_name, :b_ver, :os_name, :os_ver, :d_type, :d_brand, :d_model, :c_code, :c_name, :isp, NOW())
+        ");
+        
+        $logParams = [
+            ':log_type' => $logType,
+            ':token_id' => $tokenId,
+            ':file_id' => $fileId,
+            ':ip' => $ipAddress, ':ua' => $userAgent, ':ref' => $referrer,
+            ':b_name' => $uaDetails['client_name'], ':b_ver' => $uaDetails['client_version'],
+            ':os_name' => $uaDetails['os_name'], ':os_ver' => $uaDetails['os_version'],
+            ':d_type' => $uaDetails['device_type'], ':d_brand' => $uaDetails['device_brand'],
+            ':d_model' => $uaDetails['device_model'], ':c_code' => $geoDetails['country_code'],
+            ':c_name' => $geoDetails['city_name'], ':isp' => $geoDetails['isp']
+        ];
+        $logStmt->execute($logParams);
+    } catch (Exception $e) {
+        // Hiba esetén naplózzuk a szerver oldali error logba, de ne álljon le a folyamat.
+        error_log("PhantomTrack logActivity error: " . $e->getMessage());
+    }
+}
+
+/**
+ * Generál egy egyedi, nehezen kitalálható tokent fájlokhoz.
+ *
+ * @return string 32 karakteres hexadecimális token.
+ */
+function generateFileViewToken() {
+    return bin2hex(random_bytes(16));
+}
+
+
+
+function getFileIcon($mimeType, $filename = '') {
+    $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+    $extIcons = [
+        'pdf'  => '📄', 'doc'  => '📃', 'docx' => '📃', 'xls'  => '📊', 'xlsx' => '📊', 'ppt'  => '📈',
+        'pptx' => '📈', 'txt'  => '📝', 'md'   => '🧾', 'csv'  => '📑', 'php'  => '🐘', 'js'   => '🧠',
+        'ts'   => '🧠', 'html' => '🌐', 'css'  => '🎨', 'json' => '🔧', 'xml'  => '🔧', 'py'   => '🐍',
+        'java' => '☕', 'c'    => '💻', 'cpp'  => '💻', 'cs'   => '🔧', 'rb'   => '💎', 'go'   => '🐹',
+        'rs'   => '🦀', 'swift'=> '🐦', 'kt'   => '🦾', 'sql'  => '📊', 'sh'   => '💻', 'vb'   => '🔧',
+        'lua'  => '🐢', 'yml'  => '📘', 'yaml' => '📘', 'jpg'  => '🖼️', 'jpeg' => '🖼️', 'png'  => '🖼️',
+        'gif'  => '🖼️', 'svg'  => '🖼️', 'webp' => '🖼️', 'mp4'  => '🎥', 'mov'  => '🎬', 'avi'  => '🎬',
+        'mp3'  => '🎵', 'wav'  => '🎧', 'ogg'  => '🎶', 'zip'  => '📦', 'rar'  => '📦', '7z'   => '📦',
+        'tar'  => '📦', 'gz'   => '📦', 'exe'  => '🖥️', 'apk'  => '📱', 'iso'  => '💿', 'bin'  => '📦'
+    ];
+    if (isset($extIcons[$ext])) return $extIcons[$ext];
+
+    $mimeIcons = [
+        'image/' => '🖼️', 'video/' => '🎥', 'audio/' => '🎵', 'application/pdf' => '📄',
+        'text/' => '📝', 'application/zip' => '📦', 'application/json' => '🔧', 'application/xml' => '🔧',
+        'application/' => '📋',
+    ];
+
+    foreach ($mimeIcons as $prefix => $icon) {
+        if (strpos($mimeType, $prefix) === 0) return $icon;
+    }
+    return '📁';
+}
+
+// Kódnyelv detektálása MIME típus alapján (Prism.js-hez)
+function detectCodeLanguageFromMime($mimeType) {
+    $mimeToPrism = [
+        'javascript' => ['application/javascript', 'text/javascript', 'application/x-javascript', 'text/x-javascript'],
+        'json'       => ['application/json', 'text/json', 'application/x-json', 'text/x-json'],
+        'php'        => ['application/x-php', 'text/x-php'],
+        'xml'        => ['application/xml', 'text/xml', 'application/x-xml', 'text/x-xml'],
+        'html'       => ['text/html', 'application/x-html', 'text/x-html'],
+        'css'        => ['text/css', 'application/x-css', 'text/x-css'],
+        'bash'       => ['application/x-sh', 'text/x-shellscript'],
+        'python'     => ['application/x-python', 'text/x-python'],
+        'java'       => ['application/java', 'application/x-java-source', 'text/x-java-source'],
+        'c'          => ['text/x-c', 'application/x-c'],
+        'cpp'        => ['text/x-c++', 'application/x-c++', 'text/x-cppsrc'],
+        'csharp'     => ['text/x-csharp', 'application/x-csharp'],
+        'go'         => ['text/x-go', 'application/x-go'],
+        'ruby'       => ['text/x-ruby', 'application/x-ruby'],
+        'perl'       => ['text/x-perl', 'application/x-perl'],
+        'sql'        => ['application/sql', 'text/x-sql', 'application/x-sql'],
+        'typescript' => ['application/x-typescript', 'text/x-typescript'],
+        'yaml'       => ['application/x-yaml', 'text/x-yaml'],
+        'markdown'   => ['text/markdown', 'text/x-markdown', 'application/x-markdown'],
+        'swift'      => ['text/x-swift', 'application/x-swift'],
+        'kotlin'     => ['text/x-kotlin', 'application/x-kotlin'],
+        'rust'       => ['text/x-rust', 'application/x-rust'],
+        'vbnet'      => ['text/x-vb', 'application/x-vb'],
+        'lua'        => ['text/x-lua', 'application/x-lua'],
+    ];
+
+    foreach ($mimeToPrism as $prismLang => $mimePatterns) {
+        foreach ($mimePatterns as $pattern) {
+            if (stripos($mimeType, $pattern) === 0) {
+                return $prismLang === 'html' ? 'markup' : $prismLang;
+            }
+        }
+    }
+    return null;
+}
+
+// Méret formázása (átvéve az admin.php-ből, de itt is jól jön)
+function formatBytes($bytes, $precision = 2) {
+    if ($bytes === 0) return '0 B';
+    $units = array('B', 'KB', 'MB', 'GB', 'TB');
+    for ($i = 0; $bytes >= 1024 && $i < count($units) - 1; $i++) {
+        $bytes /= 1024;
+    }
+    return round($bytes, $precision) . ' ' . $units[$i];
 }
 ?>
