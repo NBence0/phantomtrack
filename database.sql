@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Gép: 127.0.0.1
--- Létrehozás ideje: 2025. Júl 17. 14:27
+-- Létrehozás ideje: 2025. Dec 08. 16:21
 -- Kiszolgáló verziója: 10.4.32-MariaDB
 -- PHP verzió: 8.2.12
 
@@ -29,11 +29,12 @@ SET time_zone = "+00:00";
 
 CREATE TABLE `activity_logs` (
   `id` bigint(20) NOT NULL,
-  `token_id` int(11) NOT NULL,
-  `log_type` enum('pixel','link') NOT NULL DEFAULT 'pixel',
+  `token_id` int(11) DEFAULT NULL,
+  `file_id` int(11) DEFAULT NULL,
+  `log_type` enum('pixel','link','file_upload','file_view','file_download','file_view_expired','file_view_denied_ip') NOT NULL DEFAULT 'pixel',
   `link_id` int(11) DEFAULT NULL,
   `timestamp` timestamp NOT NULL DEFAULT current_timestamp(),
-  `ip_address` varchar(45) DEFAULT NULL,
+  `ip_address` varchar(128) DEFAULT NULL,
   `user_agent` text DEFAULT NULL,
   `referrer` text DEFAULT NULL,
   `browser_name` varchar(50) DEFAULT NULL,
@@ -45,7 +46,9 @@ CREATE TABLE `activity_logs` (
   `device_model` varchar(50) DEFAULT NULL,
   `country_code` varchar(2) DEFAULT NULL,
   `city_name` varchar(100) DEFAULT NULL,
-  `isp` varchar(100) DEFAULT NULL
+  `isp` varchar(100) DEFAULT NULL,
+  `lat` decimal(10,8) DEFAULT NULL,
+  `lon` decimal(11,8) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -92,24 +95,26 @@ CREATE TABLE `click_logs` (
 
 CREATE TABLE `files` (
   `id` int(11) NOT NULL,
+  `view_token` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Unique token for public viewing URL',
   `user_id` int(11) NOT NULL,
   `upload_token_id` int(11) DEFAULT NULL,
-  `stored_filename` varchar(255) NOT NULL,
-  `original_filename` varchar(255) NOT NULL,
+  `stored_filename` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `original_filename` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_size` bigint(20) NOT NULL,
-  `mime_type` varchar(255) NOT NULL,
-  `upload_ip` varchar(45) NOT NULL,
+  `mime_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `upload_ip` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `upload_timestamp` timestamp NOT NULL DEFAULT current_timestamp(),
   `download_count` int(11) NOT NULL DEFAULT 0,
-  `password_hash` varchar(255) DEFAULT NULL,
+  `password_hash` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `webhook_url` varchar(255) DEFAULT NULL,
   `expiry_time` timestamp NULL DEFAULT NULL,
   `max_downloads` int(11) DEFAULT NULL,
   `one_time_download` tinyint(1) NOT NULL DEFAULT 0,
-  `ip_whitelist` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`ip_whitelist`)),
-  `ip_blacklist` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`ip_blacklist`)),
+  `ip_whitelist` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `ip_blacklist` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `is_deleted` tinyint(1) NOT NULL DEFAULT 0,
   `deleted_at` timestamp NULL DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -125,8 +130,12 @@ CREATE TABLE `tokens` (
   `token_value` varchar(32) NOT NULL,
   `name` varchar(100) NOT NULL,
   `description` text DEFAULT NULL,
+  `webhook_url` varchar(255) DEFAULT NULL,
   `category_id` int(11) DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `max_uploads` int(11) DEFAULT NULL COMMENT 'Max uploads for limited links, NULL for unlimited',
+  `upload_count` int(11) NOT NULL DEFAULT 0 COMMENT 'Counter for uploads on this token',
+  `expiry_time` timestamp NULL DEFAULT NULL COMMENT 'Expiry timestamp for the upload token',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -183,7 +192,11 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `username`, `email`, `password_hash`, `created_at`, `is_admin`, `api_token`, `allow_api_token_creation`) VALUES
-(6, 'admin', 'sa@sa.hu', '$2y$10$9v66LVcNAZX/yDSylx5ILOM1eTdj55TsNHgr/t9x3UM7pXNI14WDm', '2025-06-25 15:43:23', 1, 'a2c6a2885d9a77321ec6636a4ed7cc7875f323682156aba38fa669840eee5b7a', 1);
+(6, 'admin', 'sa@sa.hu', '$2y$10$9v66LVcNAZX/yDSylx5ILOM1eTdj55TsNHgr/t9x3UM7pXNI14WDm', '2025-06-25 15:43:23', 1, 'a2c6a2885d9a77321ec6636a4ed7cc7875f323682156aba38fa669840eee5b7a', 1),
+(10, 'Jb', 'nbence009@gmail.com', '$2y$12$AR8vsvFV4VtNgQf.z.s/Peq8rJIZQ3xjJa4FS/vKPdOKEVLUqRv8u', '2025-09-03 05:05:32', 0, NULL, 0),
+(11, 'jedlikbots', 'nagy.bence1@students.jedlik.eu', '$2y$12$n6IptKt0vDtaaqJL1R5O2uUsawR4iYJ7TWelEhZbDsdDh9J.qGBB.', '2025-09-03 05:53:33', 0, '9f80d60283cd9a006085d4dde887a16ef38b29ea0c831ae641f5f06f47f9bd80', 1),
+(12, '$Szia Bence!$', 'Akkor.nem@cigany.nbence', '$2y$12$r639jMtU.qRQdbnV6zotZuz3WPV5DuSb8lmbwcunQRUjWwpZJQrIK', '2025-10-06 09:41:27', 0, 'b805a079e4155784906d24fab5778375deca9fdecd5a7a5ba3c37bf49a57e84a', 1),
+(13, 'nandi', 'schmidt.nandor1@gmail.com', '$2y$12$riFt.P/nmfkgOGss.DhMCOTQWl4uZyW3dol5WNYEeO7hcki754m.u', '2025-10-06 13:34:35', 0, '4b4656b68404234160c8508074eadfb1ff68fb4561d0a8989e4b22fd4e42d51a', 0);
 
 --
 -- Indexek a kiírt táblákhoz
@@ -200,7 +213,8 @@ ALTER TABLE `activity_logs`
   ADD KEY `idx_token_id` (`token_id`),
   ADD KEY `idx_timestamp` (`timestamp`),
   ADD KEY `idx_token_timestamp` (`token_id`,`timestamp`),
-  ADD KEY `link_id` (`link_id`);
+  ADD KEY `link_id` (`link_id`),
+  ADD KEY `fk_activity_logs_file_id` (`file_id`);
 
 --
 -- A tábla indexei `app_settings`
@@ -222,6 +236,7 @@ ALTER TABLE `click_logs`
 ALTER TABLE `files`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `stored_filename` (`stored_filename`),
+  ADD UNIQUE KEY `view_token_unique` (`view_token`),
   ADD KEY `user_id` (`user_id`),
   ADD KEY `upload_token_id` (`upload_token_id`);
 
@@ -309,7 +324,7 @@ ALTER TABLE `tracked_links`
 -- AUTO_INCREMENT a táblához `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- Megkötések a kiírt táblákhoz
@@ -319,7 +334,8 @@ ALTER TABLE `users`
 -- Megkötések a táblához `activity_logs`
 --
 ALTER TABLE `activity_logs`
-  ADD CONSTRAINT `activity_logs_ibfk_1` FOREIGN KEY (`token_id`) REFERENCES `tokens` (`id`) ON DELETE CASCADE;
+  ADD CONSTRAINT `activity_logs_ibfk_1` FOREIGN KEY (`token_id`) REFERENCES `tokens` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_activity_logs_file_id` FOREIGN KEY (`file_id`) REFERENCES `files` (`id`) ON DELETE CASCADE;
 
 --
 -- Megkötések a táblához `click_logs`
@@ -358,14 +374,3 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
-
-
--- 1. Webhook URL tárolása a tokenekhez (pixel és fájlbekérő is)
-ALTER TABLE `tokens` ADD COLUMN `webhook_url` VARCHAR(255) DEFAULT NULL AFTER `description`;
-
--- 2. Webhook URL tárolása egyedi fájlokhoz (ha valaki megnézi/letölti)
-ALTER TABLE `files` ADD COLUMN `webhook_url` VARCHAR(255) DEFAULT NULL AFTER `password_hash`;
-
--- 3. GPS koordináták tárolása a naplóban a térképhez
-ALTER TABLE `activity_logs` ADD COLUMN `lat` DECIMAL(10, 8) DEFAULT NULL AFTER `isp`;
-ALTER TABLE `activity_logs` ADD COLUMN `lon` DECIMAL(11, 8) DEFAULT NULL AFTER `lat`;
