@@ -65,7 +65,7 @@ switch ($action) {
     case 'get_token_details':
         $tokenId = (int)($_POST['token_id'] ?? 0);
         if ($tokenId > 0) {
-            $stmt = $db->prepare("SELECT id, name, description, category_id, is_active FROM tokens WHERE id = :id AND user_id = :user_id");
+            $stmt = $db->prepare("SELECT id, name, description, webhook_url, category_id, is_active FROM tokens WHERE id = :id AND user_id = :user_id");
             $stmt->execute([':id' => $tokenId, ':user_id' => $currentUserId]);
             $token = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -81,26 +81,30 @@ switch ($action) {
         break;
 
     case 'update_token':
-        $tokenId = (int)($_POST['token_id'] ?? 0);
-        $name = trim($_POST['token_name'] ?? '');
-        $description = trim($_POST['token_description'] ?? '');
-        $categoryId = !empty($_POST['token_category_id']) ? (int)$_POST['token_category_id'] : null;
-        $isActive = isset($_POST['is_active']) ? 1 : 0;
+            $tokenId = (int)($_POST['token_id'] ?? 0);
+            $name = trim($_POST['token_name'] ?? '');
+            $description = trim($_POST['token_description'] ?? '');
 
-        if ($tokenId > 0 && !empty($name)) {
-            $stmt = $db->prepare(
-                "UPDATE tokens SET name = :name, description = :description, category_id = :category_id, is_active = :is_active 
-                 WHERE id = :id AND user_id = :user_id"
-            );
-            $success = $stmt->execute([
-                ':name' => $name,
-                ':description' => $description,
-                ':category_id' => $categoryId,
-                ':is_active' => $isActive,
-                ':id' => $tokenId,
-                ':user_id' => $currentUserId
-            ]);
+            $webhookUrl = trim($_POST['webhook_url'] ?? '');
+            if (empty($webhookUrl)) $webhookUrl = null;
+        
+            $categoryId = !empty($_POST['token_category_id']) ? (int)$_POST['token_category_id'] : null;
+            $isActive = isset($_POST['is_active']) ? 1 : 0;
 
+            if ($tokenId > 0 && !empty($name)) {
+                $stmt = $db->prepare(
+                    "UPDATE tokens SET name = :name, description = :description, webhook_url = :webhook_url, category_id = :category_id, is_active = :is_active 
+                    WHERE id = :id AND user_id = :user_id"
+                );
+                $success = $stmt->execute([
+                    ':name' => $name,
+                    ':description' => $description,
+                    ':webhook_url' => $webhookUrl,
+                    ':category_id' => $categoryId,
+                    ':is_active' => $isActive,
+                    ':id' => $tokenId,
+                    ':user_id' => $currentUserId
+                ]);
             if ($success) {
                 $response['success'] = true;
                 $response['message'] = 'Token sikeresen frissítve.';

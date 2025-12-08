@@ -358,3 +358,14 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+
+
+-- 1. Webhook URL tárolása a tokenekhez (pixel és fájlbekérő is)
+ALTER TABLE `tokens` ADD COLUMN `webhook_url` VARCHAR(255) DEFAULT NULL AFTER `description`;
+
+-- 2. Webhook URL tárolása egyedi fájlokhoz (ha valaki megnézi/letölti)
+ALTER TABLE `files` ADD COLUMN `webhook_url` VARCHAR(255) DEFAULT NULL AFTER `password_hash`;
+
+-- 3. GPS koordináták tárolása a naplóban a térképhez
+ALTER TABLE `activity_logs` ADD COLUMN `lat` DECIMAL(10, 8) DEFAULT NULL AFTER `isp`;
+ALTER TABLE `activity_logs` ADD COLUMN `lon` DECIMAL(11, 8) DEFAULT NULL AFTER `lat`;

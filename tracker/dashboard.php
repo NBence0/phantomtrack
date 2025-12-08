@@ -46,6 +46,14 @@ $latestTokensStmt->bindValue(':user_id', getCurrentUserId(), PDO::PARAM_INT);
 $latestTokensStmt->bindValue(':limit', $latestTokensLimit, PDO::PARAM_INT);
 $latestTokensStmt->execute();
 $latestTokens = $latestTokensStmt->fetchAll();
+
+// Automatikus takarítás futtatása, ha engedélyezve van
+if (isLoggedIn()) {
+    // Feltételezzük, hogy a functions.php már be van töltve (a config.php-n keresztül vagy külön)
+    if (function_exists('checkAndRunCleanup')) {
+        checkAndRunCleanup();
+    }
+}
 ?>
 
 <div class="content-header">

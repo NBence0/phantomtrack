@@ -14,7 +14,7 @@ if (!$tokenValue) {
 }
 
 $db = getDB();
-$stmt = $db->prepare("SELECT id, is_active FROM tokens WHERE token_value = :token_value AND user_id IS NOT NULL");
+$stmt = $db->prepare("SELECT id, is_active, name, webhook_url FROM tokens WHERE token_value = :token_value AND user_id IS NOT NULL");
 $stmt->execute([':token_value' => $tokenValue]);
 $token = $stmt->fetch();
 
@@ -85,6 +85,11 @@ try {
         ':city_name'        => $geoDetails['city_name'],
         ':isp'              => $geoDetails['isp']
     ]);
+    
+    if (!empty($token['webhook_url'])) {
+    $msg = "**IP:** {$ipAddress}\n**Eszköz:** " . ($uaDetails['device_type'] ?? 'N/A') . "\n**Hely:** " . ($geoDetails['city_name'] ?? 'Unknown') . ", " . ($geoDetails['country_code'] ?? 'N/A');
+    sendWebhookNotification($token['webhook_url'], "pixel" . $token['name'], $msg, 3066993); // Zöld
+    }
 
 } catch (Exception $e) {
     // Hiba esetén naplózzuk a háttérben. A felhasználó erről már nem szerez tudomást.

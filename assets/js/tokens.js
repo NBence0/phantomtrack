@@ -54,7 +54,8 @@ function openEditTokenModal(tokenId) {
             form.querySelector('#edit_token_name').value = token.name;
             form.querySelector('#edit_token_description').value = token.description;
             form.querySelector('#edit_is_active').checked = (token.is_active == 1);
-
+            form.querySelector('#edit_webhook_url').value = token.webhook_url || ''; // Webhook mező feltöltése     
+            form.querySelector('#edit_is_active').checked = (token.is_active == 1);
             // Az egyedi legördülő menü dinamikus felépítése
             const wrapper = form.querySelector('#editCategorySelectWrapper');
             const hiddenSelect = wrapper.querySelector('select');

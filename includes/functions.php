@@ -543,4 +543,128 @@ function createThumbnail($sourcePath, $destinationPath, $width = 250) {
     return $success;
 }
 
+
+/**
+ * Automatikus rendszerkarbantartás
+ * 1. Törli a lejárt idejű fájlokat az adatbázisból és a lemezről.
+ * 2. Törli a félbehagyott feltöltések maradványait (chunks) a temp mappából.
+ */
+function checkAndRunCleanup() {
+    // Ha ki van kapcsolva a configban, nem csinálunk semmit
+    if (!defined('AUTO_CLEANUP_ENABLED') || !AUTO_CLEANUP_ENABLED) {
+        return;
+    }
+
+    // Mikor futott utoljára?
+    $lastRun = getAppSetting('last_cleanup_run');
+    $now = time();
+
+    // Ha még sosem futott, vagy eltelt az intervallum
+    if (!$lastRun || ($now - $lastRun) > AUTO_CLEANUP_INTERVAL) {
+        
+        $db = getDB();
+        
+        // --- A. FELADAT: Lejárt fájlok törlése ---
+        // Olyan fájlok, ahol van expiry_time, és az régebbi mint a mostani idő
+        $stmt = $db->prepare("SELECT id, stored_filename FROM files WHERE expiry_time IS NOT NULL AND expiry_time < NOW()");
+        $stmt->execute();
+        $expiredFiles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $baseUploadDir = __DIR__ . '/../uploads/';
+        $baseThumbnailDir = __DIR__ . '/../thumbnails/';
+
+        foreach ($expiredFiles as $file) {
+            // Fizikai törlés
+            $filePath = $baseUploadDir . $file['stored_filename'];
+            $thumbPath = $baseThumbnailDir . $file['id'] . '.webp'; // Vagy .jpg, konfigurációtól függően
+
+            if (file_exists($filePath)) {
+                @unlink($filePath);
+            }
+            if (file_exists($thumbPath)) {
+                @unlink($thumbPath);
+            }
+
+            // Adatbázis törlés
+            $delStmt = $db->prepare("DELETE FROM files WHERE id = :id");
+            $delStmt->execute([':id' => $file['id']]);
+        }
+
+        // --- B. FELADAT: Beragadt Chunk mappák törlése (Félbehagyott feltöltések) ---
+        $chunksBaseDir = __DIR__ . '/../uploads/chunks/';
+        if (is_dir($chunksBaseDir)) {
+            $iterator = new DirectoryIterator($chunksBaseDir);
+            foreach ($iterator as $fileinfo) {
+                // Csak a mappákat nézzük, a . és .. kivételével
+                if ($fileinfo->isDir() && !$fileinfo->isDot()) {
+                    // Ha a mappa módosítási ideje régebbi, mint a limit (pl. 24 óra)
+                    if ($fileinfo->getMTime() < ($now - CHUNK_CLEANUP_AGE)) {
+                        $targetDir = $fileinfo->getPathname();
+                        
+                        // Mappa tartalmának törlése
+                        $files = glob($targetDir . '/*');
+                        foreach ($files as $file) {
+                            if (is_file($file)) {
+                                @unlink($file);
+                            }
+                        }
+                        // Üres mappa törlése
+                        @rmdir($targetDir);
+                    }
+                }
+            }
+        }
+
+        // --- C. FELADAT: Utolsó futás idejének mentése ---
+        setAppSetting('last_cleanup_run', $now);
+    }
+}
+/**
+ * Webhook értesítés küldése (Nem blokkoló módon)
+ */
+function sendWebhookNotification($url, $title, $message, $color = 3066993) {
+    if (empty($url)) return;
+
+    // Adatok összeállítása
+    $json_data = json_encode([
+        "username" => "PhantomTrack",
+        "avatar_url" => "", // Opcionális
+        "embeds" => [
+            [
+                "title" => $title,
+                "type" => "rich",
+                "description" => $message,
+                "timestamp" => date("c", strtotime("now")),
+                "color" => $color,
+                "footer" => [
+                    "text" => "PhantomTrack System"
+                ]
+            ]
+        ]
+    ]);
+
+    // cURL inicializálás
+    $ch = curl_init($url);
+    
+    // Beállítások a gyors, "tűz és felejtsd el" működéshez
+    curl_setopt($ch, CURLOPT_POST, 1);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $json_data);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-type: application/json']);
+    
+    // A LÉNYEG: Nem várjuk meg a választ, vagy nagyon rövid ideig
+    curl_setopt($ch, CURLOPT_TIMEOUT_MS, 500); // Max 500ms (fél másodperc) várakozás
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 500); // Csatlakozásra is max fél mp
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, false); // Nem érdekel a válasz tartalma
+    curl_setopt($ch, CURLOPT_HEADER, false);
+    
+    // SSL ellenőrzés kikapcsolása (gyorsít és elkerüli a tanúsítvány hibákat)
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+
+    // Küldés
+    curl_exec($ch);
+    
+    // Hibák figyelmen kívül hagyása (szándékosan)
+    curl_close($ch);
+}
 ?>

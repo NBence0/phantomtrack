@@ -20,18 +20,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $name = trim($_POST['token_name'] ?? '');
             $description = trim($_POST['token_description'] ?? '');
             $categoryId = !empty($_POST['token_category_id']) ? (int)$_POST['token_category_id'] : null;
+            $webhookUrl = trim($_POST['webhook_url'] ?? ''); 
+            if (empty($webhookUrl)) $webhookUrl = null; // Ha üres, legyen NULL az adatbázisban
 
             if (empty($name)) {
                 $_SESSION['flash_message'] = "A token neve nem lehet üres.";
                 $_SESSION['flash_message_type'] = "warning";
             } else {
                 $newTokenValue = generateUniqueToken();
-                $stmt = $db->prepare("INSERT INTO tokens (user_id, token_value, name, description, category_id, is_active, created_at) VALUES (:user_id, :token_value, :name, :description, :category_id, 1, NOW())");
+                $stmt = $db->prepare("INSERT INTO tokens (user_id, token_value, name, description, webhook_url, category_id, is_active, created_at) VALUES (:user_id, :token_value, :name, :description, :webhook_url, :category_id, 1, NOW())");
                 $params = [
                     ':user_id' => $currentUserId,
                     ':token_value' => $newTokenValue,
                     ':name' => $name,
                     ':description' => $description,
+                    ':webhook_url' => $webhookUrl,
                     ':category_id' => $categoryId
                 ];
                 if ($stmt->execute($params)) {

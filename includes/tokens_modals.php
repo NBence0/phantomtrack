@@ -11,6 +11,13 @@
                 <input type="text" id="token_name" name="token_name" required>
             </div>
             
+            <!-- Webhook mező ÚJ tokenhez -->
+            <div class="form-group">
+                <label for="token_webhook_url">Discord/Slack Webhook URL (Opcionális):</label>
+                <input type="text" id="token_webhook_url" name="webhook_url" placeholder="https://discord.com/api/webhooks/..." class="form-control">
+                <small style="color:var(--text-secondary); font-size:0.85em;">Értesítés küldése minden megnyitásról/feltöltésről.</small>
+            </div>
+
             <div class="form-group">
                 <label for="token_description">Leírás (opcionális):</label>
                 <textarea id="token_description" name="token_description" rows="3"></textarea>
@@ -69,6 +76,12 @@
                 <input type="text" id="edit_token_name" name="token_name" required>
             </div>
             
+            <!-- Webhook mező SZERKESZTÉSHEZ -->
+            <div class="form-group">
+                <label for="edit_webhook_url">Discord/Slack Webhook URL:</label>
+                <input type="text" id="edit_webhook_url" name="webhook_url" placeholder="https://discord.com/api/webhooks/..." class="form-control">
+            </div>
+
             <div class="form-group">
                 <label for="edit_token_description">Leírás:</label>
                 <textarea id="edit_token_description" name="token_description" rows="4"></textarea>

@@ -7,7 +7,7 @@ require_once __DIR__ . '/includes/functions.php';
 
 // Hibakezelés és JSON válasz
 header('Content-Type: application/json');
-$response = ['success' => false, 'error' => 'Ismeretlen hiba.'];
+$response = ['success' => false];
 
 function exitWithError($message, $httpCode = 400) {
     global $response;
@@ -26,7 +26,7 @@ if (!$uploadTokenValue) {
 
 $db = getDB();
 $tokenStmt = $db->prepare("
-    SELECT id, user_id, token_type, max_uploads, upload_count, is_active, expiry_time
+    SELECT id, user_id, token_type, max_uploads, name, upload_count, is_active, expiry_time, webhook_url
     FROM tokens
     WHERE token_value = :token_value
 ");
@@ -230,6 +230,12 @@ try {
         $thumbnailPath = __DIR__ . '/thumbnails/' . $newFileId . '.webp';
         $sourcePath = $uploadPath . $storedFileName;
         createThumbnail($sourcePath, $thumbnailPath);
+    }
+
+    // Webhook értesítés feltöltésről
+    if (!empty($token['webhook_url'])) {
+        $msg = "**Fájl:** {$originalName}\n**Méret:** " . formatBytes($totalSize ?? $file['size']) . "\n**Feltöltő IP:** " . getIpAddress();
+        sendWebhookNotification($token['webhook_url'], "file" . $token['name'], $msg, 15844367); // Gold
     }
 
     $db->commit();
