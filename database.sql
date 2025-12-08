@@ -195,8 +195,7 @@ INSERT INTO `users` (`id`, `username`, `email`, `password_hash`, `created_at`, `
 (6, 'admin', 'sa@sa.hu', '$2y$10$9v66LVcNAZX/yDSylx5ILOM1eTdj55TsNHgr/t9x3UM7pXNI14WDm', '2025-06-25 15:43:23', 1, 'a2c6a2885d9a77321ec6636a4ed7cc7875f323682156aba38fa669840eee5b7a', 1),
 (10, 'Jb', 'nbence009@gmail.com', '$2y$12$AR8vsvFV4VtNgQf.z.s/Peq8rJIZQ3xjJa4FS/vKPdOKEVLUqRv8u', '2025-09-03 05:05:32', 0, NULL, 0),
 (11, 'jedlikbots', 'nagy.bence1@students.jedlik.eu', '$2y$12$n6IptKt0vDtaaqJL1R5O2uUsawR4iYJ7TWelEhZbDsdDh9J.qGBB.', '2025-09-03 05:53:33', 0, '9f80d60283cd9a006085d4dde887a16ef38b29ea0c831ae641f5f06f47f9bd80', 1),
-(12, '$Szia Bence!$', 'Akkor.nem@cigany.nbence', '$2y$12$r639jMtU.qRQdbnV6zotZuz3WPV5DuSb8lmbwcunQRUjWwpZJQrIK', '2025-10-06 09:41:27', 0, 'b805a079e4155784906d24fab5778375deca9fdecd5a7a5ba3c37bf49a57e84a', 1),
-(13, 'nandi', 'schmidt.nandor1@gmail.com', '$2y$12$riFt.P/nmfkgOGss.DhMCOTQWl4uZyW3dol5WNYEeO7hcki754m.u', '2025-10-06 13:34:35', 0, '4b4656b68404234160c8508074eadfb1ff68fb4561d0a8989e4b22fd4e42d51a', 0);
+
 
 --
 -- Indexek a kiírt táblákhoz
@@ -374,3 +373,113 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+
+
+
+-- 1. Galériák tábla
+CREATE TABLE `galleries` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) NOT NULL,
+  `name` varchar(100) NOT NULL,
+  `description` text DEFAULT NULL,
+  `folder_name` varchar(255) NOT NULL, -- A fizikai mappa neve az /uploads/galleries/ alatt
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `user_id` (`user_id`),
+  CONSTRAINT `galleries_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2. Kommentek tábla (a régi posts.json helyett)
+CREATE TABLE `gallery_comments` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `gallery_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `message` text NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `gallery_id` (`gallery_id`),
+  KEY `user_id` (`user_id`),
+  CONSTRAINT `gallery_comments_ibfk_1` FOREIGN KEY (`gallery_id`) REFERENCES `galleries` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `gallery_comments_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `activity_logs` 
+ADD COLUMN `meta_data` JSON DEFAULT NULL AFTER `isp`;
+
+ALTER TABLE `activity_logs` ADD COLUMN `gallery_id` int(11) DEFAULT NULL AFTER `file_id`;
+
+
+
+-- Szigorítjuk a szabályt: a kommentnek kötelezően tartoznia kell egy felhasználóhoz (ID)
+-- Mivel a felhasználó táblából bármikor lekérdezhető a név, a user_name mezőt 
+-- meghagyhatjuk "pillanatképnek" (hogy törölt user esetén is maradjon név), 
+-- de a user_id-t kötelezővé tesszük.
+
+ALTER TABLE `gallery_comments` 
+MODIFY `user_id` int(11) NOT NULL;
+
+
+
+
+-- Ez köti össze a képeket a galériákkal
+ALTER TABLE `files` 
+ADD COLUMN `gallery_id` int(11) DEFAULT NULL AFTER `upload_token_id`;
+
+-- Ez teszi gyorssá a keresést és biztosítja a kapcsolatot
+ALTER TABLE `files`
+ADD KEY `gallery_id` (`gallery_id`),
+ADD CONSTRAINT `files_fk_gallery` FOREIGN KEY (`gallery_id`) REFERENCES `galleries` (`id`) ON DELETE SET NULL;
+
+
+
+CREATE TABLE IF NOT EXISTS `galleries` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) NOT NULL,
+  `name` varchar(100) NOT NULL,
+  `description` text DEFAULT NULL,
+  `visibility` enum('public', 'private', 'password') NOT NULL DEFAULT 'private',
+  `password_hash` varchar(255) DEFAULT NULL,
+  `view_token` varchar(32) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `view_token` (`view_token`),
+  KEY `user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+
+
+
+-- Hiányzó oszlopok pótlása a galleries táblában
+ALTER TABLE `galleries`
+ADD COLUMN `visibility` enum('public', 'private', 'password') NOT NULL DEFAULT 'private' AFTER `description`,
+ADD COLUMN `password_hash` varchar(255) DEFAULT NULL AFTER `visibility`,
+ADD COLUMN `view_token` varchar(32) NOT NULL AFTER `password_hash`;
+
+-- A view_token egyediségének biztosítása (gyorsításhoz is kell)
+ALTER TABLE `galleries`
+ADD UNIQUE KEY `view_token` (`view_token`);
+
+
+
+
+
+
+ALTER TABLE `galleries` 
+ADD COLUMN `slug` varchar(150) NOT NULL DEFAULT '' AFTER `name`;
+
+
+
+UPDATE `galleries` 
+SET `slug` = LOWER(REPLACE(REPLACE(REPLACE(`name`, ' ', '-'), 'á', 'a'), 'é', 'e')); 
+-- (Bonyolultabb ékezetmentesítés SQL-ben nehéz, de indulásnak ez elég, hogy egyediek legyenek)
+-- Ha még így is lenne duplikáció, manuálisan írd át phpMyAdminban a slug mezőket!
+
+
+ALTER TABLE `galleries`
+ADD UNIQUE KEY `user_slug_unique` (`user_id`, `slug`);
+
+
+ALTER TABLE `gallery_comments`
+ADD COLUMN `user_name` varchar(100) NOT NULL AFTER `user_id`;

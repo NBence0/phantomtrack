@@ -667,4 +667,14 @@ function sendWebhookNotification($url, $title, $message, $color = 3066993) {
     // Hibák figyelmen kívül hagyása (szándékosan)
     curl_close($ch);
 }
+
+function createSlug($text) {
+    // Ékezetek cseréje
+    $text = iconv('UTF-8', 'ASCII//TRANSLIT', $text);
+    // Csak betűk, számok és kötőjelek maradjanak
+    $text = preg_replace('~[^\pL\d]+~u', '-', $text);
+    $text = trim($text, '-');
+    $text = strtolower($text);
+    return empty($text) ? 'n-a' : $text;
+}
 ?>

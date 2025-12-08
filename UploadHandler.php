@@ -4,6 +4,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/auth.php'; // Szükséges a session ellenőrzéshez
 
 // Hibakezelés és JSON válasz
 header('Content-Type: application/json');
@@ -17,67 +18,82 @@ function exitWithError($message, $httpCode = 400) {
     exit;
 }
 
-// 1. Bemeneti adatok és token validálása
-// ----------------------------------------------------
-$uploadTokenValue = $_POST['upload_token'] ?? null;
-if (!$uploadTokenValue) {
-    exitWithError('Hiányzó feltöltési token.');
-}
-
 $db = getDB();
-$tokenStmt = $db->prepare("
-    SELECT id, user_id, token_type, max_uploads, name, upload_count, is_active, expiry_time, webhook_url
-    FROM tokens
-    WHERE token_value = :token_value
-");
-$tokenStmt->execute([':token_value' => $uploadTokenValue]);
-$token = $tokenStmt->fetch();
 
-if (!$token) {
-    exitWithError('Érvénytelen feltöltési token.', 404);
+// --- BEMENETI ADATOK ELEMZÉSE (Token VAGY Galéria ID) ---
+$uploadTokenValue = $_POST['upload_token'] ?? null;
+$galleryId = $_POST['gallery_id'] ?? null;
+
+$targetUserId = null;
+$targetTokenId = null; // Csak ha public link
+$targetGalleryId = null; // Csak ha galéria feltöltés
+$isGalleryUpload = false;
+
+// 1. Eset: Publikus feltöltési link (eredeti működés)
+if ($uploadTokenValue && $uploadTokenValue !== 'undefined') {
+    $tokenStmt = $db->prepare("
+        SELECT id, user_id, token_type, max_uploads, name, upload_count, is_active, expiry_time, webhook_url
+        FROM tokens
+        WHERE token_value = :token_value
+    ");
+    $tokenStmt->execute([':token_value' => $uploadTokenValue]);
+    $token = $tokenStmt->fetch();
+
+    if (!$token) exitWithError('Érvénytelen feltöltési token.', 404);
+    if (!$token['is_active']) exitWithError('Ez a feltöltési link már nem aktív.', 403);
+    
+    // Validációk (lejárat, max upload)...
+    $now = time();
+    $expiryTimestamp = $token['expiry_time'] ? strtotime($token['expiry_time']) : null;
+    if ($expiryTimestamp !== null && $now > $expiryTimestamp) exitWithError('Ez a feltöltési link lejárt.', 403);
+    if ($token['token_type'] === 'file_request_limited' && $token['max_uploads'] !== null && $token['upload_count'] >= $token['max_uploads']) {
+        exitWithError('Limit elérve.', 403);
+    }
+
+    $targetUserId = $token['user_id'];
+    $targetTokenId = $token['id'];
+
+// 2. Eset: Galéria feltöltés (Admin/User session alapú)
+} elseif ($galleryId) {
+    if (!isLoggedIn()) {
+        exitWithError('Nincs bejelentkezve.', 401);
+    }
+    
+    $currentUserId = getCurrentUserId();
+    
+    // Ellenőrizzük, hogy a galéria az övé-e
+    $galStmt = $db->prepare("SELECT id, user_id FROM galleries WHERE id = :id AND user_id = :uid");
+    $galStmt->execute([':id' => $galleryId, ':uid' => $currentUserId]);
+    $gallery = $galStmt->fetch();
+    
+    if (!$gallery) {
+        exitWithError('Galéria nem található vagy nincs jogosultságod.', 403);
+    }
+    
+    $targetUserId = $currentUserId;
+    $targetGalleryId = $gallery['id'];
+    $isGalleryUpload = true;
+
+} else {
+    exitWithError('Hiányzó hitelesítési adatok (Token vagy Galéria ID).');
 }
 
-if (!$token['is_active']) {
-    exitWithError('Ez a feltöltési link már nem aktív.', 403);
-}
-
-if (!in_array($token['token_type'], ['file_request_permanent', 'file_request_limited'])) {
-    exitWithError('Ez a link nem fájlfeltöltésre szolgál.', 403);
-}
-
-// === ÚJ: Lejárati idő ellenőrzés ===
-$now = time();
-$expiryTimestamp = $token['expiry_time'] ? strtotime($token['expiry_time']) : null;
-if ($expiryTimestamp !== null && $now > $expiryTimestamp) {
-    exitWithError('Ez a feltöltési link lejárt.', 403);
-}
-
-if (
-    $token['token_type'] === 'file_request_limited'
-    && $token['max_uploads'] !== null
-    && $token['upload_count'] >= $token['max_uploads']
-) {
-    exitWithError('Ezen a linken már elérték a maximális feltöltési számot.', 403);
-}
 
 // === Fájl megléte és hibák ellenőrzése ===
 if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
     exitWithError('Fájlfeltöltési hiba: ' . ($_FILES['file']['error'] ?? 'Nincs fájl.'));
 }
 
-
 // 2. Fájl adatainak feldolgozása
-// ----------------------------------------------------
 $file = $_FILES['file'];
 $originalName = basename($_POST['name'] ?? $file['name']);
-$uploadPath = __DIR__ . '/uploads/'; // A configból is jöhetne
+$uploadPath = __DIR__ . '/uploads/';
 
 // 3. Darabolt (Chunked) feltöltés kezelése
-// ----------------------------------------------------
 if (isset($_POST['chunk'])) {
     $chunkIndex = intval($_POST['chunk']);
     $totalChunks = intval($_POST['chunks']);
-    $fileIdForChunks = preg_replace('/[^a-zA-Z0-9-]/', '', $_POST['file_id']); // Biztonsági tisztítás
+    $fileIdForChunks = preg_replace('/[^a-zA-Z0-9-]/', '', $_POST['file_id']);
     $chunkDir = $uploadPath . 'chunks/' . $fileIdForChunks;
 
     if (!is_dir($chunkDir)) @mkdir($chunkDir, 0777, true);
@@ -87,22 +103,22 @@ if (isset($_POST['chunk'])) {
         exitWithError('Nem sikerült a darab mentése.', 500);
     }
 
-    // Ha az utolsó darab érkezett, fűzzük össze a fájlt
     if ($chunkIndex === ($totalChunks - 1)) {
-        $finalFileId = 0; // Az adatbázis ID-t fogjuk itt tárolni
+        // Összefűzés és mentés
+        $finalFileId = 0;
         try {
             $db->beginTransaction();
 
-            // 1. Új bejegyzés a 'files' táblában, hogy megkapjuk az ID-t
             $viewToken = generateFileViewToken();
             $fileInsertStmt = $db->prepare(
-                "INSERT INTO files (user_id, upload_token_id, stored_filename, original_filename, file_size, mime_type, upload_ip, view_token)
-                 VALUES (:user_id, :token_id, :stored, :original, 0, 'application/octet-stream', :ip, :view_token)"
+                "INSERT INTO files (user_id, upload_token_id, gallery_id, stored_filename, original_filename, file_size, mime_type, upload_ip, view_token)
+                 VALUES (:user_id, :token_id, :gallery_id, :stored, :original, 0, 'application/octet-stream', :ip, :view_token)"
             );
             $fileInsertStmt->execute([
-                ':user_id' => $token['user_id'],
-                ':token_id' => $token['id'],
-                ':stored' => 'placeholder', // Ezt később frissítjük
+                ':user_id' => $targetUserId,
+                ':token_id' => $targetTokenId, // Lehet NULL
+                ':gallery_id' => $targetGalleryId, // Lehet NULL
+                ':stored' => 'placeholder',
                 ':original' => $originalName,
                 ':ip' => getIpAddress(),
                 ':view_token' => $viewToken,
@@ -111,66 +127,72 @@ if (isset($_POST['chunk'])) {
             $storedFileName = (string)$finalFileId;
             $finalPath = $uploadPath . $storedFileName;
 
-            // 2. Fájlok összefűzése
+            // Fájlok összefűzése
             $finalHandle = fopen($finalPath, 'wb');
             $totalSize = 0;
             for ($i = 0; $i < $totalChunks; $i++) {
                 $chunkPath = $chunkDir . '/chunk_' . $i;
                 $chunkHandle = fopen($chunkPath, 'rb');
-                $chunkContent = fread($chunkHandle, filesize($chunkPath));
-                fclose($chunkHandle);
-                fwrite($finalHandle, $chunkContent);
+                fwrite($finalHandle, fread($chunkHandle, filesize($chunkPath)));
                 $totalSize += filesize($chunkPath);
+                fclose($chunkHandle);
                 unlink($chunkPath);
             }
             fclose($finalHandle);
             rmdir($chunkDir);
 
-            // 3. Metaadatok frissítése a 'files' táblában
+            // Metaadatok frissítése
             $mimeType = mime_content_type($finalPath) ?: 'application/octet-stream';
-            $fileUpdateStmt = $db->prepare("UPDATE files SET stored_filename = :stored, file_size = :size, mime_type = :mime WHERE id = :id");
-            $fileUpdateStmt->execute([
-                ':stored' => $storedFileName,
-                ':size' => $totalSize,
-                ':mime' => $mimeType,
-                ':id' => $finalFileId
-            ]);
+            $db->prepare("UPDATE files SET stored_filename = :stored, file_size = :size, mime_type = :mime WHERE id = :id")
+               ->execute([':stored' => $storedFileName, ':size' => $totalSize, ':mime' => $mimeType, ':id' => $finalFileId]);
 
-            // 4. Token számláló frissítése
-            $newUploadCount = $token['upload_count'] + 1;
-            $tokenUpdateSql = "UPDATE tokens SET upload_count = :count";
-            if ($token['token_type'] === 'file_request_limited' && $newUploadCount >= $token['max_uploads']) {
-                $tokenUpdateSql .= ", is_active = 0";
+            // Token számláló frissítése (csak ha tokenes feltöltés)
+            if (!$isGalleryUpload && $targetTokenId) {
+                $newUploadCount = $token['upload_count'] + 1;
+                $tokenUpdateSql = "UPDATE tokens SET upload_count = :count";
+                if ($token['token_type'] === 'file_request_limited' && $newUploadCount >= $token['max_uploads']) {
+                    $tokenUpdateSql .= ", is_active = 0";
+                }
+                $tokenUpdateSql .= " WHERE id = :id";
+                $db->prepare($tokenUpdateSql)->execute([':count' => $newUploadCount, ':id' => $targetTokenId]);
             }
-            $tokenUpdateSql .= " WHERE id = :id";
-            $tokenUpdateStmt = $db->prepare($tokenUpdateSql);
-            $tokenUpdateStmt->execute([':count' => $newUploadCount, ':id' => $token['id']]);
             
-            logActivity('file_upload', $token['id'], $finalFileId);
-            
-            // ÚJ: INDEXKÉP GENERÁLÁSA
+            // Naplózás
+            logActivity('file_upload', $targetTokenId, $finalFileId);
+
+            // Thumbnail
             if (strpos($mimeType, 'image/') === 0) {
-                $thumbnailPath = __DIR__ . '/thumbnails/' . $finalFileId . '.webp';
-                createThumbnail($finalPath, $thumbnailPath);
+                // Mappa ellenőrzés
+                $thumbDir = __DIR__ . '/thumbnails/';
+                if (!file_exists($thumbDir)) {
+                    mkdir($thumbDir, 0755, true);
+                }
+                
+                // Névképzés a view_token alapján (nem ID!)
+                $thumbnailPath = $thumbDir . $viewToken . '.webp';
+                
+                // Windows útvonal javítás (opcionális, de segít)
+                $sourcePath = str_replace('\\', '/', $uploadPath . $storedFileName);
+                $thumbnailPath = str_replace('\\', '/', $thumbnailPath);
+
+                createThumbnail($sourcePath, $thumbnailPath);
             }
 
             $db->commit();
             
-            // Sikeres válasz
             $response['success'] = true;
-            $response['file_id'] = $viewToken; // <-- EZ AZ ÚJ SOR
+            $response['file_id'] = $viewToken;
             $response['message'] = 'Fájl sikeresen feltöltve.';
             $response['view_url'] = BASE_URL . 'View.php?id=' . $viewToken;
             echo json_encode($response);
 
         } catch (Exception $e) {
             $db->rollBack();
-            if ($finalFileId > 0) @unlink($uploadPath . $finalFileId); // Takarítás
+            if ($finalFileId > 0) @unlink($uploadPath . $finalFileId);
             exitWithError('Fájl összeállítási hiba: ' . $e->getMessage(), 500);
         }
         exit;
     } else {
-        // Köztes darab sikeresen feltöltve
         $response['success'] = true;
         $response['chunk_uploaded'] = $chunkIndex;
         echo json_encode($response);
@@ -178,21 +200,21 @@ if (isset($_POST['chunk'])) {
     }
 }
 
-// 4. Direkt (nem darabolt) feltöltés kezelése
-// ----------------------------------------------------
+// 4. Direkt feltöltés kezelése (Hasonló módosításokkal)
 try {
     $db->beginTransaction();
 
-    // 1. Új bejegyzés a files táblában
     $viewToken = generateFileViewToken();
-    $fileInsertStmt = $db->prepare(
-        "INSERT INTO files (user_id, upload_token_id, stored_filename, original_filename, file_size, mime_type, upload_ip, view_token)
-         VALUES (:user_id, :token_id, :stored, :original, :size, :mime, :ip, :view_token)"
-    );
     $mimeType = mime_content_type($file['tmp_name']) ?: 'application/octet-stream';
+
+    $fileInsertStmt = $db->prepare(
+        "INSERT INTO files (user_id, upload_token_id, gallery_id, stored_filename, original_filename, file_size, mime_type, upload_ip, view_token)
+         VALUES (:user_id, :token_id, :gallery_id, :stored, :original, :size, :mime, :ip, :view_token)"
+    );
     $fileInsertStmt->execute([
-        ':user_id' => $token['user_id'],
-        ':token_id' => $token['id'],
+        ':user_id' => $targetUserId,
+        ':token_id' => $targetTokenId,
+        ':gallery_id' => $targetGalleryId,
         ':stored' => 'placeholder',
         ':original' => $originalName,
         ':size' => $file['size'],
@@ -203,39 +225,42 @@ try {
     $newFileId = $db->lastInsertId();
     $storedFileName = (string)$newFileId;
 
-    // 2. Fájl mozgatása és átnevezése
     if (!move_uploaded_file($file['tmp_name'], $uploadPath . $storedFileName)) {
-        throw new Exception('A fájl mozgatása sikertelen.');
+        throw new Exception('Fájl mozgatása sikertelen.');
     }
     
-    // 3. Stored filename frissítése
     $db->prepare("UPDATE files SET stored_filename = :stored WHERE id = :id")->execute([':stored' => $storedFileName, ':id' => $newFileId]);
     
-    // 4. Token számláló frissítése
-    $newUploadCount = $token['upload_count'] + 1;
-    $tokenUpdateSql = "UPDATE tokens SET upload_count = :count";
-    if ($token['token_type'] === 'file_request_limited' && $newUploadCount >= $token['max_uploads']) {
-        $tokenUpdateSql .= ", is_active = 0";
+    // Token számláló (csak ha tokenes)
+    if (!$isGalleryUpload && $targetTokenId) {
+        $newUploadCount = $token['upload_count'] + 1;
+        $db->prepare("UPDATE tokens SET upload_count = :count WHERE id = :id")
+           ->execute([':count' => $newUploadCount, ':id' => $targetTokenId]);
     }
-    $tokenUpdateSql .= " WHERE id = :id";
-    $tokenUpdateStmt = $db->prepare($tokenUpdateSql);
-    $tokenUpdateStmt->execute([':count' => $newUploadCount, ':id' => $token['id']]);
 
-    // 5. Naplózás
-// ...
-    logActivity('file_upload', $token['id'], $newFileId);
+    logActivity('file_upload', $targetTokenId, $newFileId);
     
-    // ÚJ: INDEXKÉP GENERÁLÁSA
     if (strpos($mimeType, 'image/') === 0) {
-        $thumbnailPath = __DIR__ . '/thumbnails/' . $newFileId . '.webp';
-        $sourcePath = $uploadPath . $storedFileName;
+        // Mappa ellenőrzés
+        $thumbDir = __DIR__ . '/thumbnails/';
+        if (!file_exists($thumbDir)) {
+            mkdir($thumbDir, 0755, true);
+        }
+        
+        // Névképzés a view_token alapján (nem ID!)
+        $thumbnailPath = $thumbDir . $viewToken . '.webp';
+        
+        // Windows útvonal javítás (opcionális, de segít)
+        $sourcePath = str_replace('\\', '/', $uploadPath . $storedFileName);
+        $thumbnailPath = str_replace('\\', '/', $thumbnailPath);
+
         createThumbnail($sourcePath, $thumbnailPath);
     }
 
-    // Webhook értesítés feltöltésről
-    if (!empty($token['webhook_url'])) {
-        $msg = "**Fájl:** {$originalName}\n**Méret:** " . formatBytes($totalSize ?? $file['size']) . "\n**Feltöltő IP:** " . getIpAddress();
-        sendWebhookNotification($token['webhook_url'], "file" . $token['name'], $msg, 15844367); // Gold
+    // Webhook (csak ha van tokenhez rendelt)
+    if (!$isGalleryUpload && !empty($token['webhook_url'])) {
+        $msg = "**Fájl:** {$originalName}\n**Méret:** " . formatBytes($file['size']);
+        sendWebhookNotification($token['webhook_url'], "file" . $token['name'], $msg, 15844367);
     }
 
     $db->commit();
@@ -248,5 +273,5 @@ try {
 
 } catch (Exception $e) {
     $db->rollBack();
-    exitWithError('Adatbázis hiba a direkt feltöltés során: ' . $e->getMessage(), 500);
+    exitWithError('Adatbázis hiba: ' . $e->getMessage(), 500);
 }

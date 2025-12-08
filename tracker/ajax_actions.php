@@ -607,6 +607,256 @@ switch ($action) {
             'data' => array_values($hourlyData)
         ];
         break;
+    // --- GALÉRIA KEZELÉS ---
+    case 'create_gallery':
+        $name = trim($_POST['name'] ?? '');
+        $slug = createSlug($name);
+        // Egyediség ellenőrzése (ha már van ilyen slugja a usernek, teszünk mögé számot)
+        $originalSlug = $slug;
+        $counter = 1;
+        while(true) {
+            $check = $db->prepare("SELECT id FROM galleries WHERE user_id = :uid AND slug = :slug");
+            $check->execute([':uid' => $currentUserId, ':slug' => $slug]);
+            if(!$check->fetch()) break; // Nincs ilyen, mehet
+            $slug = $originalSlug . '-' . $counter;
+            $counter++;
+        }
+
+        $description = trim($_POST['description'] ?? '');
+        $visibility = $_POST['visibility'] ?? 'private';
+        $password = $_POST['password'] ?? '';
+        
+        if (empty($name)) {
+            $response['message'] = 'A galéria neve kötelező.';
+            break;
+        }
+        
+        $passwordHash = null;
+        if ($visibility === 'password') {
+            if (empty($password)) {
+                $response['message'] = 'Jelszavas védelemhez kötelező jelszót megadni.';
+                break;
+            }
+            $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+        }
+        
+        $viewToken = bin2hex(random_bytes(16)); // Egyedi linkhez
+        
+        $stmt = $db->prepare("INSERT INTO galleries (user_id, name, slug, description, visibility, password_hash, view_token) VALUES (:uid, :name, :slug, :desc, :vis, :pass, :token)");
+        if ($stmt->execute([
+            ':uid' => $currentUserId,
+            ':name' => $name,
+            ':slug' => $slug,
+            ':desc' => $description,
+            ':vis' => $visibility,
+            ':pass' => $passwordHash,
+            ':token' => $viewToken
+        ])) {
+            $response['success'] = true;
+            $response['message'] = 'Galéria sikeresen létrehozva.';
+        } else {
+            $response['message'] = 'Adatbázis hiba.';
+            http_response_code(500);
+        }
+        break;
+
+    case 'delete_gallery':
+        $galleryId = (int)($_POST['gallery_id'] ?? 0);
+        
+        // Ellenőrzés: Saját galéria-e?
+        $check = $db->prepare("SELECT id FROM galleries WHERE id = :id AND user_id = :uid");
+        $check->execute([':id' => $galleryId, ':uid' => $currentUserId]);
+        if (!$check->fetch()) {
+            $response['message'] = 'Nincs jogosultságod vagy nem létezik.';
+            break;
+        }
+        
+        // 1. Fájlok fizikai törlése (opcionális, de ajánlott a szemetelés ellen)
+        $filesStmt = $db->prepare("SELECT stored_filename, id FROM files WHERE gallery_id = :gid");
+        $filesStmt->execute([':gid' => $galleryId]);
+        $files = $filesStmt->fetchAll();
+        
+        foreach($files as $f) {
+            $path = __DIR__ . '/../uploads/' . $f['stored_filename'];
+            $thumb = __DIR__ . '/../thumbnails/' . $f['id'] . '.webp';
+            if(file_exists($path)) @unlink($path);
+            if(file_exists($thumb)) @unlink($thumb);
+        }
+        
+        // 2. DB Törlés (Cascade miatt viszi a files, comments, logs rekordokat is)
+        $del = $db->prepare("DELETE FROM galleries WHERE id = :id");
+        if ($del->execute([':id' => $galleryId])) {
+            $response['success'] = true;
+            $response['message'] = 'Galéria törölve.';
+        } else {
+            $response['message'] = 'Hiba a törlésnél.';
+        }
+        break;
+    // --- GALÉRIA LOGOLÁS (A Kistesó szelleme) ---
+    case 'log_gallery_event':
+        // Ez publikus is lehet, nem kell requireLogin()
+        // DE a CSRF check az elején megfogja, ha nincs session.
+        // A gallery_view.php indít sessiont, generál CSRF tokent, tehát működni fog.
+        
+        $galleryId = (int)($_POST['gallery_id'] ?? 0);
+        $eventType = $_POST['event_type'] ?? 'unknown';
+        $metaData = $_POST['meta_data'] ?? '{}'; // JSON string
+        
+        // Logolás a központi activity_logs táblába
+        // logActivity függvényünk módosítása nélkül is működhetne, ha közvetlen INSERT-et írunk ide,
+        // mert a logActivity nem fogad meta_data-t paraméterként jelenleg.
+        // Így inkább közvetlen SQL-t használunk a meta_data mentéséhez.
+        
+        $ip = getIpAddress();
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        
+        $stmt = $db->prepare("INSERT INTO activity_logs (log_type, gallery_id, ip_address, user_agent, meta_data) VALUES (:type, :gid, :ip, :ua, :meta)");
+        $stmt->execute([
+            ':type' => 'gallery_' . $eventType, // pl. gallery_image_view
+            ':gid' => $galleryId,
+            ':ip' => $ip,
+            ':ua' => $ua,
+            ':meta' => $metaData
+        ]);
+        
+        $response['success'] = true;
+        break;
+    // --- GALÉRIA LEKÉRDEZÉS (Szerkesztéshez) ---
+    case 'get_gallery_details':
+        $gid = (int)$_POST['gallery_id'];
+        $stmt = $db->prepare("SELECT id, name, description, visibility FROM galleries WHERE id = :id AND user_id = :uid");
+        $stmt->execute([':id' => $gid, ':uid' => $currentUserId]);
+        $gal = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($gal) {
+            $response['success'] = true;
+            $response['gallery'] = $gal;
+        } else {
+            $response['message'] = 'Nem található.';
+        }
+        break;
+
+    // --- GALÉRIA FRISSÍTÉS ---
+    case 'update_gallery':
+        $gid = (int)$_POST['gallery_id'];
+        // Slug generálás
+        $slug = createSlug($name);
+        
+        // Egyediség ellenőrzése (ha már van ilyen slugja a usernek, teszünk mögé számot)
+        $originalSlug = $slug;
+        $counter = 1;
+        while(true) {
+            $check = $db->prepare("SELECT id FROM galleries WHERE user_id = :uid AND slug = :slug");
+            $check->execute([':uid' => $currentUserId, ':slug' => $slug]);
+            if(!$check->fetch()) break; // Nincs ilyen, mehet
+            $slug = $originalSlug . '-' . $counter;
+            $counter++;
+        }
+        $name = trim($_POST['name']);
+        $desc = trim($_POST['description']);
+        $vis = $_POST['visibility'];
+        $pass = $_POST['password'];
+        
+        // Jogosultság ellenőrzés
+        $check = $db->prepare("SELECT id FROM galleries WHERE id = :id AND user_id = :uid");
+        $check->execute([':id' => $gid, ':uid' => $currentUserId]);
+        if (!$check->fetch()) {
+            $response['message'] = 'Nincs jogosultságod.';
+            break;
+        }
+        
+        $sql = "UPDATE galleries SET name = :name, slug = :slug, description = :desc, visibility = :vis";
+        $params = [':name' => $name, ':desc' => $desc, ':vis' => $vis, ':id' => $gid, ':slug' => $slug];
+        
+        // Jelszó kezelés
+        if ($vis === 'password' && !empty($pass)) {
+            $sql .= ", password_hash = :pass";
+            $params[':pass'] = password_hash($pass, PASSWORD_DEFAULT);
+        }
+        
+        $sql .= " WHERE id = :id";
+        
+        if ($db->prepare($sql)->execute($params)) {
+            $response['success'] = true;
+            $response['message'] = 'Galéria frissítve.';
+        } else {
+            $response['message'] = 'Hiba a mentésnél.';
+        }
+        break;
+
+    // --- GALÉRIA KOMMENTEK ---
+    case 'submit_gallery_comment':
+        if (!isLoggedIn()) {
+            $response['message'] = 'A hozzászóláshoz be kell jelentkezned.';
+            break;
+        }
+        
+        $galleryId = (int)($_POST['gallery_id'] ?? 0);
+        $message = trim($_POST['message'] ?? '');
+        $currentUserId = getCurrentUserId();
+        
+        if ($galleryId <= 0 || empty($message)) {
+            $response['message'] = 'Hiányzó adatok.';
+            break;
+        }
+        
+        // 1. Usernév lekérése
+        $userStmt = $db->prepare("SELECT username FROM users WHERE id = :uid");
+        $userStmt->execute([':uid' => $currentUserId]);
+        $username = $userStmt->fetchColumn() ?: 'Ismeretlen'; // Fallback
+        
+        // 2. Beszúrás
+        $stmt = $db->prepare("INSERT INTO gallery_comments (gallery_id, user_id, user_name, message, created_at) VALUES (:gid, :uid, :uname, :msg, NOW())");
+        
+        if ($stmt->execute([
+            ':gid' => $galleryId,
+            ':uid' => $currentUserId,
+            ':uname' => $username,
+            ':msg' => $message
+        ])) {
+            // 3. VÁLASZ FELÜLÍRÁSA (Ez hiányzott!)
+            $response['success'] = true;
+            $response['message'] = 'Sikeres küldés!'; 
+            
+            // FONTOS: Vissza kell küldeni az adatokat a JS-nek!
+            $response['comment'] = [
+                'username' => htmlspecialchars($username),
+                'message' => nl2br(htmlspecialchars($message)),
+                'timestamp' => date('Y-m-d H:i:s')
+            ];
+        } else {
+            $response['message'] = 'Adatbázis hiba.';
+        }
+        break;
+        case 'delete_gallery_comment':
+        if (!isLoggedIn()) {
+            $response['message'] = 'Nincs jogosultságod.';
+            break;
+        }
+        
+        $commentId = (int)($_POST['comment_id'] ?? 0);
+        $galleryId = (int)($_POST['gallery_id'] ?? 0);
+        
+        // 1. Jogosultság ellenőrzés: A galéria tulajdonosa vagy?
+        $checkStmt = $db->prepare("SELECT id FROM galleries WHERE id = :gid AND user_id = :uid");
+        $checkStmt->execute([':gid' => $galleryId, ':uid' => $currentUserId]);
+        $isOwner = $checkStmt->fetch();
+        
+        // VAGY maga a komment írója vagy? (Opcionális, de hasznos)
+        // $isAuthor = ... 
+        
+        if ($isOwner || isAdmin()) {
+            $del = $db->prepare("DELETE FROM gallery_comments WHERE id = :cid AND gallery_id = :gid");
+            if ($del->execute([':cid' => $commentId, ':gid' => $galleryId])) {
+                $response['success'] = true;
+                $response['message'] = 'Komment törölve.';
+            } else {
+                $response['message'] = 'Hiba a törlésnél.';
+            }
+        } else {
+            $response['message'] = 'Nincs jogosultságod törölni ezt a kommentet.';
+        }
+        break;
 
     default:
         // Ha az 'action' ismeretlen, hibát adunk vissza

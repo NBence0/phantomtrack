@@ -40,6 +40,15 @@ if (function_exists('getCurrentUserId') && getCurrentUserId()) {
             <a href="<?php echo BASE_URL; ?>tracker/files.php" title="Fájlkezelő"><i class="fas fa-folder-open"></i><span>Fájlkezelő</span></a>
         </li>
 
+        
+        <!-- Galériák Menüpont (Illeszd be a <ul class="nav-menu"> listába) -->
+        <li class="<?php echo (strpos($_SERVER['REQUEST_URI'], 'tracker/galleries.php') !== false) ? 'active' : ''; ?>">
+            <a href="<?php echo BASE_URL; ?>tracker/galleries.php">
+                <i class="fas fa-images"></i>
+                <span>Galériák</span>
+            </a>
+        </li>
+
         <!-- TRACKEREK SZEKCIÓ -->
         <?php 
             $tracker_pages = ['tokens.php', 'file_requests.php', 'permanent_requests.php', 'token_details.php'];

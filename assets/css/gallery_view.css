@@ -1,0 +1,328 @@
+/* assets/css/gallery_view.css */
+
+:root {
+    --bg-dark: #0f0f23;
+    --bg-card: rgba(30, 35, 50, 0.8);
+    --text-main: #e0e0e0;
+    --accent: #00d4ff;
+    --accent-secondary: #4ecdc4;
+    --glass-border: rgba(255, 255, 255, 0.1);
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
+    color: var(--text-main);
+    margin: 0;
+    min-height: 100vh;
+}
+
+.gallery-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Header Info Box */
+.infobox {
+    text-align: center;
+    margin-bottom: 30px;
+    padding: 20px;
+    border-radius: 15px;
+    background: rgba(20, 25, 40, 0.6);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(10px);
+}
+
+.infobox h1 {
+    font-size: 2.5em;
+    margin: 0 0 10px 0;
+    background: linear-gradient(45deg, var(--accent), var(--accent-secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.gallery-meta {
+    color: #a0a0a0;
+    font-size: 0.9em;
+}
+
+/* Password Protection */
+.password-gate {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 80vh;
+}
+.gate-card {
+    background: var(--bg-card);
+    padding: 40px;
+    border-radius: 20px;
+    text-align: center;
+    border: 1px solid var(--accent);
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+}
+
+/* Grid Layout */
+.thumbnails {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 20px;
+    margin-bottom: 40px;
+}
+
+.thumb-item {
+    background: var(--bg-card);
+    border-radius: 15px;
+    overflow: hidden;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    border: 1px solid var(--glass-border);
+    cursor: pointer;
+    position: relative;
+}
+
+.thumb-item:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(0, 212, 255, 0.15);
+    border-color: var(--accent);
+}
+
+.thumb-item img {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    display: block;
+}
+
+.thumb-info {
+    padding: 10px;
+    text-align: center;
+    font-size: 0.85em;
+    color: #888;
+}
+
+/* Lightbox */
+.lightbox {
+    display: none;
+    position: fixed;
+    z-index: 10000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(10px);
+}
+
+.lightbox-content {
+    max-width: 90vw;
+    max-height: 85vh;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 50px rgba(0,0,0,0.5);
+    border-radius: 5px;
+}
+
+.close, .nav-arrow {
+    color: white;
+    position: absolute;
+    cursor: pointer;
+    transition: color 0.3s;
+    user-select: none;
+}
+
+.close { top: 20px; right: 30px; font-size: 40px; }
+.nav-arrow { top: 50%; font-size: 60px; transform: translateY(-50%); padding: 20px; }
+.nav-left { left: 10px; }
+.nav-right { right: 10px; }
+.close:hover, .nav-arrow:hover { color: var(--accent); }
+
+/* Comments Section */
+.forum {
+    background: var(--bg-card);
+    padding: 30px;
+    border-radius: 20px;
+    margin-top: 50px;
+    border: 1px solid var(--glass-border);
+}
+
+.post {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 15px;
+    border-left: 3px solid var(--accent);
+}
+
+.post-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 5px;
+    font-size: 0.9em;
+}
+
+.post-author { color: var(--accent); font-weight: bold; }
+.post-date { color: #666; }
+.post-message { color: #ddd; line-height: 1.5; }
+
+.comment-form textarea {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--glass-border);
+    color: white;
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    resize: vertical;
+}
+
+.btn-submit {
+    background: linear-gradient(45deg, var(--accent), var(--accent-secondary));
+    color: #000;
+    border: none;
+    padding: 10px 25px;
+    border-radius: 25px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.btn-submit:hover { transform: scale(1.05); }
+
+/* Admin bar if logged in */
+.admin-bar {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 999;
+}
+
+
+/* Comments Section - Modernizált */
+.forum {
+    background: var(--bg-card);
+    padding: 30px;
+    border-radius: 20px;
+    margin-top: 50px;
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(10px);
+}
+
+.forum h3 {
+    margin-top: 0;
+    color: var(--text-main);
+}
+
+/* ÚJ INPUT STÍLUS */
+.comment-form {
+    margin-bottom: 30px;
+    position: relative;
+}
+
+.comment-form textarea {
+    width: 100%;
+    background: rgba(20, 25, 40, 0.6);
+    border: 1px solid var(--glass-border);
+    color: #fff;
+    padding: 15px;
+    border-radius: 12px;
+    margin-bottom: 15px;
+    resize: vertical;
+    min-height: 80px;
+    font-family: inherit;
+    font-size: 1rem;
+    transition: border-color 0.3s, box-shadow 0.3s;
+    box-sizing: border-box; /* Fontos! */
+}
+
+.comment-form textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 15px rgba(0, 212, 255, 0.1);
+}
+
+.btn-submit {
+    background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+    color: #0f0f23;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 30px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.btn-submit:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 212, 255, 0.5);
+}
+
+.btn-submit:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* POSZTOK */
+.post {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 15px 20px;
+    border-radius: 12px;
+    margin-bottom: 15px;
+    border-left: 3px solid var(--accent);
+    position: relative; /* A törlés gomb pozícionálásához */
+    transition: background 0.3s;
+}
+
+.post:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.post-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 0.9em;
+}
+
+.post-author { 
+    color: var(--accent); 
+    font-weight: 700; 
+    font-size: 1.05em;
+}
+
+.post-date { 
+    color: #888; 
+    font-size: 0.85em;
+}
+
+.post-message { 
+    color: #ddd; 
+    line-height: 1.6;
+    word-wrap: break-word; /* Hosszú szavak törése */
+}
+
+/* TÖRLÉS GOMB (Kuka ikon) */
+.delete-comment-btn {
+    background: transparent;
+    border: none;
+    color: #ff4757;
+    cursor: pointer;
+    font-size: 0.9em;
+    padding: 5px;
+    opacity: 0.6;
+    transition: opacity 0.3s, transform 0.2s;
+    margin-left: 10px;
+}
+
+.delete-comment-btn:hover {
+    opacity: 1;
+    transform: scale(1.1);
+}

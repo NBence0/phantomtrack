@@ -270,10 +270,14 @@ function uploadFileInChunks(file, uiUniqueId) {
 
     const urlParams = new URLSearchParams(window.location.search);
     const uploadToken = urlParams.get('token');
-    if (!uploadToken) {
-        // Ezt a hibát a PHP oldalnak kellene kezelnie, de kliens oldalon is leállíthatjuk.
+    
+    // Megnézzük, van-e galéria ID (Admin felületen)
+    const galleryInput = document.getElementById('currentGalleryId');
+    const galleryId = galleryInput ? galleryInput.value : null;
+
+    if (!uploadToken && !galleryId) {
         filesFailedToUpload++;
-        updateQueueItemIndicator(uiUniqueId, `Hiba: Hiányzó feltöltési token az URL-ben.`, '#e74c3c', 'error');
+        updateQueueItemIndicator(uiUniqueId, `Hiba: Hiányzó feltöltési adatok (Token vagy Galéria ID).`, '#e74c3c', 'error');
         processNextFileInGlobalQueue();
         return;
     }
@@ -284,14 +288,35 @@ function uploadFileInChunks(file, uiUniqueId) {
         const end = Math.min(start + CHUNK_SIZE, file.size);
         const chunkBlob = file.slice(start, end);
         const formData = new FormData();
+
+        const galleryInput = document.getElementById('currentGalleryId');
+        const galleryId = galleryInput ? galleryInput.value : null;
+
+        // Validáció: Vagy token kell, vagy gallery ID
+        if (!uploadToken && !galleryId) {
+            filesFailedToUpload++;
+            updateQueueItemIndicator(uiUniqueId, `Hiba: Hiányzó feltöltési adatok.`, '#e74c3c', 'error');
+            processNextFileInGlobalQueue();
+            return;
+        }
+
+        // Ha van token, csatoljuk
+        if (uploadToken) formData.append('upload_token', uploadToken);
+
+        // Ha van gallery ID, csatoljuk
+        if (galleryId) formData.append('gallery_id', galleryId);
+        
         formData.append('file', chunkBlob, file.name);
         formData.append('chunk', currentChunkIndex);
         formData.append('chunks', totalChunks);
         formData.append('name', file.name);
         formData.append('file_id', fileIdForServer); // Fontos: ezt az ID-t használja a szerver
         formData.append('upload_token', uploadToken); // Token hozzáadása
+        if (galleryId) formData.append('gallery_id', galleryId);       // Galéria ID hozzáadása
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'UploadHandler.php', true);
+        // Ha definiálva van a globális URL, azt használjuk, egyébként fallback a relatívra
+        const targetUrl = (typeof UPLOAD_HANDLER_URL !== 'undefined') ? UPLOAD_HANDLER_URL : 'UploadHandler.php';
+        xhr.open('POST', targetUrl, true);
         xhr.upload.onprogress = function(event) {
             if (event.lengthComputable) {
                 let chunkProgressPercent = (event.loaded / event.total) * 100;
@@ -372,13 +397,20 @@ function uploadSingleFileDirectly(file, uiUniqueId) {
     formData.append('file', file);
     const urlParams = new URLSearchParams(window.location.search);
     const uploadToken = urlParams.get('token');
-    if (!uploadToken) {
+    
+    const galleryInput = document.getElementById('currentGalleryId');
+    const galleryId = galleryInput ? galleryInput.value : null;
+
+    if (!uploadToken && !galleryId) {
         filesFailedToUpload++;
-        updateQueueItemIndicator(uiUniqueId, `Hiba: Hiányzó feltöltési token az URL-ben.`, '#e74c3c', 'error');
+        updateQueueItemIndicator(uiUniqueId, `Hiba: Hiányzó feltöltési adatok.`, '#e74c3c', 'error');
         processNextFileInGlobalQueue();
         return;
     }
-    formData.append('upload_token', uploadToken); // Token hozzáadása
+    
+    if (uploadToken) formData.append('upload_token', uploadToken);
+    if (galleryId) formData.append('gallery_id', galleryId);
+
     const xhr = new XMLHttpRequest();
     let startTimeForFile = Date.now();
     currentFileChunkInfoText.textContent = ''; // Nincs darab info
@@ -423,8 +455,9 @@ function uploadSingleFileDirectly(file, uiUniqueId) {
         updateQueueItemIndicator(uiUniqueId, 'Hálózati hiba.', '#e74c3c', 'error');
         processNextFileInGlobalQueue();
     };
-    xhr.open('POST', 'UploadHandler.php', true);
-    xhr.send(formData);
+    // Ha definiálva van a globális URL, azt használjuk, egyébként fallback a relatívra
+    const targetUrl = (typeof UPLOAD_HANDLER_URL !== 'undefined') ? UPLOAD_HANDLER_URL : 'UploadHandler.php';
+    xhr.open('POST', targetUrl, true);    xhr.send(formData);
 }
 
 function showError(message) {

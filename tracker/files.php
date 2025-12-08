@@ -96,7 +96,7 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="file-card glass-effect">
                 <a href="<?php echo BASE_URL . 'tracker/file_details.php?id=' . $file['id']; ?>" class="file-preview-link">
                     <?php 
-                    $thumbnailUrl = BASE_URL . 'thumbnails/' . $file['id'] . '.webp';
+                    $thumbnailUrl = BASE_URL . 'thumbnails/' . $file['view_token'] . '.webp';
                     if (strpos($file['mime_type'], 'image/') === 0): ?>
                         <img src="<?php echo $thumbnailUrl; ?>" alt="<?php echo escape($file['original_filename']); ?>" class="file-thumbnail" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                         <div class="file-icon-fallback" style="display:none;"><?php echo getFileIcon($file['mime_type'], $file['original_filename']); ?></div>

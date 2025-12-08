@@ -1,0 +1,6 @@
+RewriteEngine On
+
+# Galéria Pretty URL
+# Ha a kérés így néz ki: /gallery/username/slug
+# Átirányítja ide: /gallery_view.php?user=username&slug=slug
+RewriteRule ^gallery/([^/]+)/([^/]+)/?$ gallery_view.php?user=$1&slug=$2 [L,QSA]
