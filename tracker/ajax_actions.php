@@ -625,6 +625,7 @@ switch ($action) {
         $description = trim($_POST['description'] ?? '');
         $visibility = $_POST['visibility'] ?? 'private';
         $password = $_POST['password'] ?? '';
+        $usePrettyUrl = isset($_POST['use_pretty_url']) ? 1 : 0;
         
         if (empty($name)) {
             $response['message'] = 'A galéria neve kötelező.';
@@ -642,7 +643,7 @@ switch ($action) {
         
         $viewToken = bin2hex(random_bytes(16)); // Egyedi linkhez
         
-        $stmt = $db->prepare("INSERT INTO galleries (user_id, name, slug, description, visibility, password_hash, view_token) VALUES (:uid, :name, :slug, :desc, :vis, :pass, :token)");
+        $stmt = $db->prepare("INSERT INTO galleries (user_id, name, slug, use_pretty_url, description, visibility, password_hash, view_token) VALUES (:uid, :name, :slug, :upu, :desc, :vis, :pass, :token)");
         if ($stmt->execute([
             ':uid' => $currentUserId,
             ':name' => $name,
@@ -650,7 +651,8 @@ switch ($action) {
             ':desc' => $description,
             ':vis' => $visibility,
             ':pass' => $passwordHash,
-            ':token' => $viewToken
+            ':token' => $viewToken,
+            ':upu' => $usePrettyUrl
         ])) {
             $response['success'] = true;
             $response['message'] = 'Galéria sikeresen létrehozva.';
@@ -739,9 +741,13 @@ switch ($action) {
     // --- GALÉRIA FRISSÍTÉS ---
     case 'update_gallery':
         $gid = (int)$_POST['gallery_id'];
+        $name = trim($_POST['name']);
+        $desc = trim($_POST['description']);
+        $vis = $_POST['visibility'];
+        $pass = $_POST['password'];
+
         // Slug generálás
         $slug = createSlug($name);
-        
         // Egyediség ellenőrzése (ha már van ilyen slugja a usernek, teszünk mögé számot)
         $originalSlug = $slug;
         $counter = 1;
@@ -752,10 +758,7 @@ switch ($action) {
             $slug = $originalSlug . '-' . $counter;
             $counter++;
         }
-        $name = trim($_POST['name']);
-        $desc = trim($_POST['description']);
-        $vis = $_POST['visibility'];
-        $pass = $_POST['password'];
+
         
         // Jogosultság ellenőrzés
         $check = $db->prepare("SELECT id FROM galleries WHERE id = :id AND user_id = :uid");
@@ -828,7 +831,7 @@ switch ($action) {
             $response['message'] = 'Adatbázis hiba.';
         }
         break;
-        case 'delete_gallery_comment':
+    case 'delete_gallery_comment':
         if (!isLoggedIn()) {
             $response['message'] = 'Nincs jogosultságod.';
             break;
@@ -855,6 +858,42 @@ switch ($action) {
             }
         } else {
             $response['message'] = 'Nincs jogosultságod törölni ezt a kommentet.';
+        }
+        break;
+    // --- FÁJL GALÉRIA HOZZÁRENDELÉS ---
+    case 'assign_file_gallery':
+        $fileId = (int)($_POST['file_id'] ?? 0);
+        $galleryId = $_POST['gallery_id'] ?? 'null'; // 'null' string vagy ID
+        
+        // Jogosultság ellenőrzés (Fájl)
+        $checkFile = $db->prepare("SELECT id FROM files WHERE id = :fid AND user_id = :uid");
+        $checkFile->execute([':fid' => $fileId, ':uid' => $currentUserId]);
+        if (!$checkFile->fetch()) {
+            $response['message'] = 'Fájl nem található vagy nincs jogod.';
+            break;
+        }
+        
+        // Érték előkészítése
+        $targetGalleryId = null;
+        if ($galleryId !== 'null' && is_numeric($galleryId)) {
+            // Jogosultság ellenőrzés (Galéria)
+            $checkGal = $db->prepare("SELECT id FROM galleries WHERE id = :gid AND user_id = :uid");
+            $checkGal->execute([':gid' => $galleryId, ':uid' => $currentUserId]);
+            if ($checkGal->fetch()) {
+                $targetGalleryId = $galleryId;
+            } else {
+                $response['message'] = 'Érvénytelen galéria.';
+                break;
+            }
+        }
+        
+        // Frissítés
+        $upd = $db->prepare("UPDATE files SET gallery_id = :gid WHERE id = :fid");
+        if ($upd->execute([':gid' => $targetGalleryId, ':fid' => $fileId])) {
+            $response['success'] = true;
+            $response['message'] = 'Galéria módosítva.';
+        } else {
+            $response['message'] = 'Adatbázis hiba.';
         }
         break;
 

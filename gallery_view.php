@@ -41,6 +41,15 @@ if (!$gallery) {
     die('<body style="background:#0f0f23;color:white;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;"><h1>404 - A galéria nem található.</h1></body>');
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['logout_gallery'])) {
+    $sessionKey = 'gallery_auth_' . $gallery['id'];
+    if (isset($_SESSION[$sessionKey])) {
+        unset($_SESSION[$sessionKey]); // Töröljük a jogosultságot
+    }
+    // Újratöltés, hogy megjelenjen a jelszókérő
+    header("Location: " . $_SERVER['REQUEST_URI']);
+    exit;
+}
 // 2. Jogosultság ellenőrzése
 
 // JAVÍTOTT KÓD RÉSZLET (gallery_view.php)
@@ -169,6 +178,17 @@ if ($isAuthorized) {
                     </a>
                 </div>
             <?php endif; ?>
+
+            <!-- KILÉPÉS GOMB (Jelszavas galériáknál) -->
+            <?php if ($gallery['visibility'] === 'password' && isset($_SESSION['gallery_auth_' . $gallery['id']])): ?>
+                <form method="POST" style="position:absolute; top:20px; right:20px;">
+                    <input type="hidden" name="logout_gallery" value="1">
+                    <button type="submit" class="delete-comment-btn" title="Kilépés a galériából" style="font-size:1.5em; opacity:0.8;">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </form>
+            <?php endif; ?>
+
         </div>
 
         <!-- Képrács -->

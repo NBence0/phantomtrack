@@ -375,11 +375,37 @@ require_once __DIR__ . '/../includes/header.php';
 
     function copyInput(id) {
         const input = document.getElementById(id);
-        input.select();
-        input.setSelectionRange(0, 99999); // Mobil kompatibilitás
-        navigator.clipboard.writeText(input.value).then(() => {
-            showDynamicMessage('Link másolva!', 'success');
-        });
+        
+        // 1. Próbálkozás: Modern API (csak HTTPS/Localhost)
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(input.value).then(() => {
+                showDynamicMessage('Link másolva!', 'success');
+            }).catch(err => {
+                console.error('Modern copy failed:', err);
+                fallbackCopy(input); // Ha mégis hiba van, fallback
+            });
+        } else {
+            // 2. Próbálkozás: Fallback (HTTP)
+            fallbackCopy(input);
+        }
+    }
+
+    function fallbackCopy(inputElement) {
+        inputElement.focus();
+        inputElement.select();
+        inputElement.setSelectionRange(0, 99999); // Mobilra
+
+        try {
+            const successful = document.execCommand('copy');
+            if (successful) {
+                showDynamicMessage('Link másolva!', 'success');
+            } else {
+                showDynamicMessage('A másolás nem sikerült.', 'error');
+            }
+        } catch (err) {
+            console.error('Fallback copy failed:', err);
+            showDynamicMessage('A böngésző nem engedi a másolást.', 'error');
+        }
     }
     // Adatok betöltése és modal nyitása
     function editGallery(id) {
