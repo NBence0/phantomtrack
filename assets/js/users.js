@@ -37,10 +37,45 @@ function openEditUserModal(userId) {
         .then(data => {
             if (data.success && data.user) {
                 const user = data.user;
+                
+                // Alap adatok betöltése
                 form.querySelector('#edit_user_id').value = user.id;
                 form.querySelector('#edit_username').value = user.username;
                 form.querySelector('#edit_email').value = user.email;
                 form.querySelector('#edit_is_admin').checked = (user.is_admin == 1);
+                
+                // MÓDOSÍTVA: Social ID mezők betöltése és eseménykezelők hozzáadása
+                const inputs = {
+                    google_id: form.querySelector('#edit_google_id'),
+                    facebook_id: form.querySelector('#edit_facebook_id'),
+                    github_id: form.querySelector('#edit_github_id')
+                };
+
+                for (const [key, input] of Object.entries(inputs)) {
+                    if (input) {
+                        // Érték beállítása (null esetén üres string)
+                        const originalValue = user[key] || '';
+                        input.value = originalValue;
+
+                        // Régi event listener törlése (klónozással)
+                        const newInput = input.cloneNode(true);
+                        input.parentNode.replaceChild(newInput, input);
+
+                        // Új listener a figyelmeztetéshez
+                        newInput.addEventListener('change', function() {
+                            // Csak akkor szólunk, ha tényleg változott az érték
+                            if (this.value !== originalValue) {
+                                if (!confirm('FIGYELEM! A közösségi azonosító (Social ID) módosítása vagy törlése miatt a felhasználó elveszítheti a hozzáférést a fiókjához. Biztosan folytatod?')) {
+                                    this.value = originalValue; // Visszaállítás
+                                }
+                            }
+                        });
+                        
+                        // Frissítjük a referenciát az objektumban is, bár itt már nem használjuk
+                        inputs[key] = newInput;
+                    }
+                }
+
             } else {
                 showDynamicMessage(data.message || 'Hiba a felhasználói adatok betöltésekor.', 'error');
                 closeModal('editUserModal');
@@ -190,5 +225,5 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Eseménykezelők regisztrálása az űrlapokra ---
     handleFormSubmit('addUserForm'); // Ez AJAX-szal küldi
     handleFormSubmit('editUserForm'); // Ez is AJAX-szal küldi (feltételezve, hogy létezik)
-    handleFormSubmit('deleteUserForm', false); // Ez hagyományos POST kérést indít
+    handleFormSubmit('deleteUserForm'); // MÓDOSÍTVA: Most már ez is AJAX lesz!
 });

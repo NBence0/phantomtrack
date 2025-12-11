@@ -46,26 +46,38 @@ function loginOrRegisterWithGoogle($googleInfo) {
     $db = getDB();
     $email = $googleInfo['email'];
     $googleId = $googleInfo['id'];
-    $name = $googleInfo['name'] ?? explode('@', $email)[0]; // Ha nincs név, az email eleje
+    $name = $googleInfo['name'] ?? explode('@', $email)[0];
 
-    // 1. Megnézzük, van-e már user ezzel a Google ID-val
+    // 1. ESET: Van-e már user ezzel a konkrét Google ID-val? (Ez a legbiztonságosabb)
     $stmt = $db->prepare("SELECT id, username FROM users WHERE google_id = :google_id LIMIT 1");
     $stmt->execute([':google_id' => $googleId]);
     $user = $stmt->fetch();
 
     if ($user) {
-        // Van ilyen user -> Beléptetés
+        // Már össze van kötve -> Beléptetés
         setSession($user['id'], $user['username']);
         return true;
     }
 
-    // 2. Ha nincs Google ID, megnézzük, van-e ilyen EMAIL cím
-    $stmt = $db->prepare("SELECT id, username FROM users WHERE email = :email LIMIT 1");
+    // 2. ESET: Nincs Google ID, de van-e ilyen EMAIL cím?
+    $stmt = $db->prepare("SELECT id, username, password_hash FROM users WHERE email = :email LIMIT 1");
     $stmt->execute([':email' => $email]);
     $existingUser = $stmt->fetch();
 
     if ($existingUser) {
-        // Van user ezzel az emaillel -> Összekötjük a fiókot a Google ID-val
+        // --- BIZTONSÁGI JAVÍTÁS ITT ---
+        
+        // Ha a felhasználónak van jelszava, NEM kötjük össze automatikusan!
+        // Ez védi ki, hogy valaki beregisztrálja a te emailedet, te meg belépsz rá Google-lel.
+        if (!empty($existingUser['password_hash'])) {
+            // Nem engedjük a Google belépést, amíg nem igazolta magát jelszóval
+            $_SESSION['flash_message'] = "Ez az e-mail cím már regisztrálva van jelszóval. Kérjük, jelentkezz be a felhasználónév/jelszó párossal, majd a Beállításokban kötheted össze a Google fiókodat.";
+            $_SESSION['flash_message_type'] = "error";
+            return false; 
+        }
+
+        // Ha nincs jelszava (valami hiba miatt, vagy korábbi Google regisztrációból maradt jelszó nélkül),
+        // akkor kivételesen összeköthetjük.
         $updateStmt = $db->prepare("UPDATE users SET google_id = :google_id WHERE id = :id");
         $updateStmt->execute([':google_id' => $googleId, ':id' => $existingUser['id']]);
         
@@ -73,23 +85,29 @@ function loginOrRegisterWithGoogle($googleInfo) {
         return true;
     }
 
-    // 3. Teljesen új felhasználó -> Regisztráció
-    // Generálunk egy egyedi felhasználónevet (mert a Google név lehet foglalt)
-    $baseUsername = createSlug($name); // A functions.php-ban lévő slug generálót használjuk
+    // 3. ESET: Teljesen új felhasználó -> Regisztráció
+    // Itt kezeljük a felhasználónév ütközést is (az 'almaalma' problémát)
+    
+    // Kezdő név generálása
+    $baseUsername = createSlug($name);
+    if (empty($baseUsername)) $baseUsername = 'user';
+    
     $finalUsername = $baseUsername;
     $counter = 1;
 
+    // Ciklus: addig próbálgatjuk, amíg nem találunk szabad felhasználónevet
+    // Így ha van 'almaalma', akkor a Google user 'almaalma1' lesz.
     while (true) {
         $checkStmt = $db->prepare("SELECT COUNT(*) FROM users WHERE username = :username");
         $checkStmt->execute([':username' => $finalUsername]);
         if ($checkStmt->fetchColumn() == 0) {
-            break;
+            break; // Találtunk szabad nevet
         }
         $finalUsername = $baseUsername . $counter;
         $counter++;
     }
 
-    // Beszúrás (Jelszó nélkül, Google ID-val)
+    // Beszúrás
     try {
         $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, is_admin, google_id, created_at) VALUES (:username, :email, NULL, 0, :google_id, NOW())");
         $stmt->execute([
@@ -108,6 +126,145 @@ function loginOrRegisterWithGoogle($googleInfo) {
     }
 }
 
+
+
+function loginOrRegisterWithFacebook($fbInfo) {
+    $db = getDB();
+    $email = $fbInfo['email'];
+    $fbId = $fbInfo['id'];
+    $name = $fbInfo['name'];
+
+    // 1. ESET: Van-e már user ezzel a Facebook ID-val?
+    $stmt = $db->prepare("SELECT id, username FROM users WHERE facebook_id = :fb_id LIMIT 1");
+    $stmt->execute([':fb_id' => $fbId]);
+    $user = $stmt->fetch();
+
+    if ($user) {
+        setSession($user['id'], $user['username']);
+        return true;
+    }
+
+    // 2. ESET: Nincs Facebook ID, de van-e ilyen EMAIL cím?
+    $stmt = $db->prepare("SELECT id, username, password_hash FROM users WHERE email = :email LIMIT 1");
+    $stmt->execute([':email' => $email]);
+    $existingUser = $stmt->fetch();
+
+    if ($existingUser) {
+        // BIZTONSÁGI ELLENŐRZÉS: Ha van jelszava, TILOS automatikusan beléptetni!
+        if (!empty($existingUser['password_hash'])) {
+            $_SESSION['flash_message'] = "Ez az e-mail cím már regisztrálva van jelszóval. Kérjük, lépj be hagyományosan!";
+            $_SESSION['flash_message_type'] = "error";
+            return false;
+        }
+
+        // Ha nincs jelszava (pl. Google user volt), összekötjük
+        $updateStmt = $db->prepare("UPDATE users SET facebook_id = :fb_id WHERE id = :id");
+        $updateStmt->execute([':fb_id' => $fbId, ':id' => $existingUser['id']]);
+        
+        setSession($existingUser['id'], $existingUser['username']);
+        return true;
+    }
+
+    // 3. ESET: Teljesen új regisztráció
+    $baseUsername = createSlug($name);
+    if (empty($baseUsername)) $baseUsername = 'user';
+    $finalUsername = $baseUsername;
+    $counter = 1;
+
+    while (true) {
+        $checkStmt = $db->prepare("SELECT COUNT(*) FROM users WHERE username = :username");
+        $checkStmt->execute([':username' => $finalUsername]);
+        if ($checkStmt->fetchColumn() == 0) break;
+        $finalUsername = $baseUsername . $counter;
+        $counter++;
+    }
+
+    try {
+        $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, is_admin, facebook_id, created_at) VALUES (:username, :email, NULL, 0, :fb_id, NOW())");
+        $stmt->execute([
+            ':username' => $finalUsername,
+            ':email' => $email,
+            ':fb_id' => $fbId
+        ]);
+        setSession($db->lastInsertId(), $finalUsername);
+        return true;
+    } catch (PDOException $e) {
+        error_log("Facebook registration error: " . $e->getMessage());
+        return false;
+    }
+}
+
+function loginOrRegisterWithGithub($ghInfo) {
+    $db = getDB();
+    $email = $ghInfo['email'];
+    $ghId = $ghInfo['id'];
+    $name = $ghInfo['name'] ?? $ghInfo['login']; // GitHubnál a 'login' a username, a 'name' opcionális
+
+    // 1. ESET: Van-e már user ezzel a GitHub ID-val?
+    $stmt = $db->prepare("SELECT id, username FROM users WHERE github_id = :gh_id LIMIT 1");
+    $stmt->execute([':gh_id' => $ghId]);
+    $user = $stmt->fetch();
+
+    if ($user) {
+        setSession($user['id'], $user['username']);
+        return true;
+    }
+
+    // 2. ESET: Nincs GitHub ID, de van-e ilyen EMAIL cím?
+    // GitHubnál előfordulhat, hogy az email privát, ezért ezt csak akkor tudjuk, ha kaptunk emailt.
+    if (!empty($email)) {
+        $stmt = $db->prepare("SELECT id, username, password_hash FROM users WHERE email = :email LIMIT 1");
+        $stmt->execute([':email' => $email]);
+        $existingUser = $stmt->fetch();
+
+        if ($existingUser) {
+            // BIZTONSÁGI ELLENŐRZÉS: Ha van jelszava, TILOS automatikusan beléptetni!
+            if (!empty($existingUser['password_hash'])) {
+                $_SESSION['flash_message'] = "Ez az e-mail cím már regisztrálva van jelszóval. Kérjük, lépj be hagyományosan!";
+                $_SESSION['flash_message_type'] = "error";
+                return false;
+            }
+
+            // Összekötés
+            $updateStmt = $db->prepare("UPDATE users SET github_id = :gh_id WHERE id = :id");
+            $updateStmt->execute([':gh_id' => $ghId, ':id' => $existingUser['id']]);
+            
+            setSession($existingUser['id'], $existingUser['username']);
+            return true;
+        }
+    }
+
+    // 3. ESET: Új regisztráció
+    // Ha a GitHub nem adott emailt (mert privát), akkor generálnunk kell egy placeholder-t vagy kérni a usertől.
+    // De a lenti kódban lekérjük a privát emailt is, szóval elvileg mindig lesz.
+    
+    $baseUsername = createSlug($ghInfo['login']); // GitHub login név jó alap
+    if (empty($baseUsername)) $baseUsername = 'gh_user';
+    $finalUsername = $baseUsername;
+    $counter = 1;
+
+    while (true) {
+        $checkStmt = $db->prepare("SELECT COUNT(*) FROM users WHERE username = :username");
+        $checkStmt->execute([':username' => $finalUsername]);
+        if ($checkStmt->fetchColumn() == 0) break;
+        $finalUsername = $baseUsername . $counter;
+        $counter++;
+    }
+
+    try {
+        $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, is_admin, github_id, created_at) VALUES (:username, :email, NULL, 0, :gh_id, NOW())");
+        $stmt->execute([
+            ':username' => $finalUsername,
+            ':email' => $email, // Ha üres, itt hiba lehet az adatbázis 'NOT NULL' miatt. A lenti kód kezeli.
+            ':gh_id' => $ghId
+        ]);
+        setSession($db->lastInsertId(), $finalUsername);
+        return true;
+    } catch (PDOException $e) {
+        error_log("GitHub registration error: " . $e->getMessage());
+        return false;
+    }
+}
 // Segédfüggvény a session beállításhoz (DRY elv)
 function setSession($userId, $username) {
     $_SESSION['user_id'] = $userId;

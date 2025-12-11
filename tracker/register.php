@@ -155,6 +155,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     Bejelentkezés Google fiókkal
                 </a>
+            <!--
+            <a href="<?php echo BASE_URL; ?>login/facebook_auth.php" class="btn" style="
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background-color: #1877F2;
+                color: #fff;
+                border-radius: 4px;
+                padding: 10px;
+                text-decoration: none;
+                font-weight: 500;
+                margin-top: 10px;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+                transition: opacity .2s;
+            ">
+                <i class="fab fa-facebook-f" style="margin-right: 10px; font-size: 18px;"></i>
+                Bejelentkezés Facebookkal
+            </a>
+            -->
+            <a href="<?php echo BASE_URL; ?>login/github_auth.php" class="btn" style="
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background-color: #333; /* GitHub Fekete */
+                color: #fff;
+                border-radius: 4px;
+                padding: 10px;
+                text-decoration: none;
+                font-weight: 500;
+                margin-top: 10px;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+                transition: opacity .2s;
+            ">
+                <i class="fab fa-github" style="margin-right: 10px; font-size: 18px;"></i>
+                Bejelentkezés GitHubbal
+            </a>
             </div>
             <?php endif; ?>
              <p style="margin-top: 20px;">

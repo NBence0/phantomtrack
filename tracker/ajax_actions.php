@@ -192,14 +192,19 @@ switch ($action) {
         }
         $userId = (int)($_POST['user_id'] ?? 0);
         if ($userId > 0) {
-            $stmt = $db->prepare("SELECT id, username, email, is_admin FROM users WHERE id = :id"); // <-- JAVÍTVA
+            $stmt = $db->prepare("SELECT id, username, email, is_admin, google_id, facebook_id, github_id FROM users WHERE id = :id");
             $stmt->execute([':id' => $userId]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            
             if ($user) {
                 $response['success'] = true;
                 $response['user'] = $user;
-            } else { $response['message'] = 'Felhasználó nem található.'; }
-        } else { $response['message'] = 'Érvénytelen felhasználó ID.'; }
+            } else {
+                $response['message'] = 'Felhasználó nem található.';
+            }
+        } else {
+            $response['message'] = 'Érvénytelen felhasználó ID.';
+        }
         break;
 
     case 'update_user':
@@ -211,32 +216,112 @@ switch ($action) {
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $newPassword = $_POST['password'] ?? '';
-        $isAdmin = isset($_POST['is_admin']) ? 1 : 0; 
+        $isAdmin = isset($_POST['is_admin']) ? 1 : 0;
+        
+        // MÓDOSÍTVA: Social ID-k beolvasása (üres string -> NULL)
+        $googleId = !empty($_POST['google_id']) ? trim($_POST['google_id']) : null;
+        $facebookId = !empty($_POST['facebook_id']) ? trim($_POST['facebook_id']) : null;
+        $githubId = !empty($_POST['github_id']) ? trim($_POST['github_id']) : null;
 
         if ($userId > 0 && !empty($username) && !empty($email)) {
             // Egyediség-ellenőrzés
             $checkStmt = $db->prepare("SELECT id FROM users WHERE (username = :username OR email = :email) AND id != :id");
             $checkStmt->execute([':username' => $username, ':email' => $email, ':id' => $userId]);
+            
             if ($checkStmt->fetch()) {
                  $response['message'] = 'A megadott felhasználónév vagy email már foglalt.';
             } else {
-                $sql = "UPDATE users SET username = :username, email = :email, is_admin = :is_admin";
-                $params = [':username' => $username, ':email' => $email, ':is_admin' => $isAdmin, ':id' => $userId];
+                // MÓDOSÍTVA: SQL update kibővítve a social mezőkkel
+                $sql = "UPDATE users SET username = :username, email = :email, is_admin = :is_admin, google_id = :google_id, facebook_id = :facebook_id, github_id = :github_id";
+                $params = [
+                    ':username' => $username, 
+                    ':email' => $email, 
+                    ':is_admin' => $isAdmin, 
+                    ':google_id' => $googleId,
+                    ':facebook_id' => $facebookId,
+                    ':github_id' => $githubId,
+                    ':id' => $userId
+                ];
+                
                 if (!empty($newPassword)) {
                     $sql .= ", password_hash = :password_hash";
                     $params[':password_hash'] = password_hash($newPassword, PASSWORD_DEFAULT);
                 }
+                
                 $sql .= " WHERE id = :id";
                 $updateStmt = $db->prepare($sql);
+                
                 if ($updateStmt->execute($params)) {
                     $response['success'] = true;
                     $response['message'] = 'Felhasználó adatai frissítve.';
                     if ($userId == $currentUserId) { $_SESSION['username'] = $username; }
-                } else { $response['message'] = 'Hiba a mentés során.'; }
+                } else {
+                    $response['message'] = 'Hiba a mentés során.';
+                }
             }
-        } 
-        else { 
+        } else { 
             $response['message'] = 'Hiányzó vagy érvénytelen adatok.'; 
+        }
+        break;
+
+    case 'delete_user':
+        if (!isAdmin()) {
+            $response['message'] = 'Nincs jogosultságod a művelethez.';
+            break;
+        }
+
+        $userIdToDelete = (int)($_POST['user_id_to_delete'] ?? 0);
+        $tokenAction = $_POST['token_action'] ?? 'delete';
+        $newUserId = ($_POST['new_user_id'] === 'none' || empty($_POST['new_user_id'])) ? null : (int)$_POST['new_user_id'];
+
+        if ($userIdToDelete <= 0) {
+            $response['message'] = 'Érvénytelen felhasználó ID.';
+        } elseif ($userIdToDelete == $currentUserId) {
+            $response['message'] = 'Saját fiókodat nem törölheted.';
+        } elseif ($tokenAction === 'move' && ($newUserId === 0 || is_null($newUserId))) {
+            $response['message'] = 'Válassz egy célfelhasználót az áthelyezéshez.';
+        } else {
+            $db->beginTransaction();
+            try {
+                if ($tokenAction === 'move') {
+                    // Tokenek áthelyezése
+                    $updateTokensStmt = $db->prepare("UPDATE tokens SET user_id = :new_user_id WHERE user_id = :old_user_id");
+                    $updateTokensStmt->execute([':new_user_id' => $newUserId, ':old_user_id' => $userIdToDelete]);
+                    
+                    // Galériák áthelyezése (ha van)
+                    $db->prepare("UPDATE galleries SET user_id = :new WHERE user_id = :old")->execute([':new' => $newUserId, ':old' => $userIdToDelete]);
+                    
+                    // Fájlok áthelyezése
+                    $db->prepare("UPDATE files SET user_id = :new WHERE user_id = :old")->execute([':new' => $newUserId, ':old' => $userIdToDelete]);
+                    
+                    $msgPart = "Tokenek és adatok átruházva. ";
+                } else {
+                    // MINDEN TÖRLÉSE (Cascade gondoskodik a legtöbbről, de a fizikai fájlokat illene törölni)
+                    // Itt most egyszerűsítünk, csak a DB rekordokat töröljük, a fájlok maradnak "árvák" (vagy a cron takarítja őket)
+                    // A DB cascade beállításoktól függően a tokens, galleries, files törlődhet.
+                    
+                    // Biztonság kedvéért explicit törlés, ha nincs cascade
+                    $db->prepare("DELETE FROM activity_logs WHERE token_id IN (SELECT id FROM tokens WHERE user_id = :uid)")->execute([':uid' => $userIdToDelete]);
+                    $db->prepare("DELETE FROM tokens WHERE user_id = :uid")->execute([':uid' => $userIdToDelete]);
+                    $db->prepare("DELETE FROM galleries WHERE user_id = :uid")->execute([':uid' => $userIdToDelete]);
+                    // A fájlokat itt nem töröljük fizikailag a bonyolultság miatt, de a DB-ből eltűnnek
+                    $db->prepare("DELETE FROM files WHERE user_id = :uid")->execute([':uid' => $userIdToDelete]);
+                    
+                    $msgPart = "Adatok törölve. ";
+                }
+
+                // Felhasználó törlése
+                $deleteUserStmt = $db->prepare("DELETE FROM users WHERE id = :id");
+                $deleteUserStmt->execute([':id' => $userIdToDelete]);
+
+                $db->commit();
+                $response['success'] = true;
+                $response['message'] = $msgPart . 'Felhasználó sikeresen törölve.';
+                
+            } catch (Exception $e) {
+                $db->rollBack();
+                $response['message'] = 'Hiba történt: ' . $e->getMessage();
+            }
         }
         break;
 

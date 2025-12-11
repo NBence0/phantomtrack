@@ -24,10 +24,20 @@ if (session_status() == PHP_SESSION_NONE) {
 }
 
 
-// Google OAuth beállítások
+// Google OAuth 2.0 beállítások
 define('GOOGLE_CLIENT_ID', '983694138482-junh75btidv3tjpe4vgjuhio47pau657.apps.googleusercontent.com');
 define('GOOGLE_CLIENT_SECRET', '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');
-define('GOOGLE_REDIRECT_URI', BASE_URL . 'tracker/google_auth.php');
+define('GOOGLE_REDIRECT_URI', BASE_URL . 'login/google_auth.php');
+
+// Facebook OAuth beállítások
+define('FB_APP_ID', '1294821296010804');
+define('FB_APP_SECRET', '3be405e73b4ded7f3d70b1859f45fd54');
+define('FB_REDIRECT_URI', BASE_URL . 'login/facebook_auth.php');
+
+// GitHub OAuth beállítások
+define('GITHUB_CLIENT_ID', 'Ov23lie7vxWxcVIjSQWL');
+define('GITHUB_CLIENT_SECRET', '9a5bae7ad0fdf32dbc295ddca6b7e9297087b498');
+define('GITHUB_REDIRECT_URI', BASE_URL . 'login/github_auth.php'); // Figyelj az új login mappára!
 
 // Hibajelentés (fejlesztéshez)
 ini_set('display_errors', 1);

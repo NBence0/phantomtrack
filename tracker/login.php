@@ -105,7 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <span style="height: 1px; background: rgba(255,255,255,0.2); flex: 1;"></span>
                 </div>
 
-                <a href="<?php echo BASE_URL; ?>tracker/google_auth.php"
+                <a href="<?php echo BASE_URL; ?>login/google_auth.php"
                 class="btn btn-google"
                 style="
                     display: flex;
@@ -139,8 +139,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     Bejelentkezés Google fiókkal
                 </a>
             </div>
+            <!--
+            <a href="<?php echo BASE_URL; ?>login/facebook_auth.php" class="btn" style="
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background-color: #1877F2;
+                color: #fff;
+                border-radius: 4px;
+                padding: 10px;
+                text-decoration: none;
+                font-weight: 500;
+                margin-top: 10px;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+                transition: opacity .2s;
+            ">
+                <i class="fab fa-facebook-f" style="margin-right: 10px; font-size: 18px;"></i>
+                Bejelentkezés Facebookkal
+            </a>
+            -->
+            <a href="<?php echo BASE_URL; ?>login/github_auth.php" class="btn" style="
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background-color: #333; /* GitHub Fekete */
+                color: #fff;
+                border-radius: 4px;
+                padding: 10px;
+                text-decoration: none;
+                font-weight: 500;
+                margin-top: 10px;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+                transition: opacity .2s;
+            ">
+                <i class="fab fa-github" style="margin-right: 10px; font-size: 18px;"></i>
+                Bejelentkezés GitHubbal
+            </a>
             <p style="margin-top: 20px;">
-                Nincs még fiókod? <a href="<?php echo BASE_URL; ?>tracker/register.php" style="color:var(--accent-primary);">Regisztrálj most!</a>
+                Nincs még fiókod? <a href="<?php echo BASE_URL; ?>login/register.php" style="color:var(--accent-primary);">Regisztrálj most!</a>
             </p>
         </div>
     </div>

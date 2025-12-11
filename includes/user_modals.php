@@ -53,6 +53,29 @@
                 <input type="checkbox" id="edit_is_admin" name="is_admin" value="1">
                 <label for="edit_is_admin" style="display:inline-block; font-weight:normal;">Adminisztrátori jogosultság</label>
             </div>
+
+            <hr style="border-color:var(--glass-border); margin: 20px 0;">
+
+            <h4 style="color:var(--color-warning); margin-bottom:10px;"><i class="fas fa-exclamation-triangle"></i> Haladó Beállítások (Social ID)</h4>
+            <p style="font-size:0.85em; color:var(--text-secondary); margin-bottom:15px;">
+                Ezeket a mezőket csak végszükség esetén módosítsd! Ha törlöd vagy átírod, a felhasználó elveszítheti a hozzáférést a fiókjához a közösségi belépésen keresztül.
+            </p>
+
+            <div class="form-group">
+                <label for="edit_google_id"><i class="fab fa-google"></i> Google ID:</label>
+                <input type="text" id="edit_google_id" name="google_id" class="form-control" placeholder="Google User ID">
+            </div>
+            
+            <div class="form-group">
+                <label for="edit_facebook_id"><i class="fab fa-facebook"></i> Facebook ID:</label>
+                <input type="text" id="edit_facebook_id" name="facebook_id" class="form-control" placeholder="Facebook User ID">
+            </div>
+            
+            <div class="form-group">
+                <label for="edit_github_id"><i class="fab fa-github"></i> GitHub ID:</label>
+                <input type="text" id="edit_github_id" name="github_id" class="form-control" placeholder="GitHub User ID">
+            </div>
+            
             <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Mentés</button>
         </form>
     </div>
@@ -65,7 +88,7 @@
         <h2>Felhasználó Törlése</h2>
         <p>A(z) <strong id="userToDeleteName"></strong> nevű felhasználó törlésre kerül.</p>
         <p>Mi történjen a felhasználóhoz tartozó <strong id="userTokenCount"></strong> darab tokennel?</p>
-        <form id="deleteUserForm" method="POST" action="<?php echo BASE_URL . 'tracker/users.php'; ?>">
+        <form id="deleteUserForm" method="POST">
             <?php echo csrfInput(); ?>
             <input type="hidden" name="action" value="delete_user">
             <input type="hidden" id="userToDeleteId" name="user_id_to_delete">

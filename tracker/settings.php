@@ -12,9 +12,17 @@ requireLogin(); // Csak bejelentkezett felhasználók
 $db = getDB();
 $currentUserId = getCurrentUserId();
 
+// Lekérjük a felhasználó adatait, hogy tudjuk, van-e jelszava
+// (Ezt felhoztuk az elejére, mert a mentésnél is tudnunk kell)
+$userStmt = $db->prepare("SELECT email, password_hash, api_token, allow_api_token_creation FROM users WHERE id = :user_id");
+$userStmt->execute([':user_id' => $currentUserId]);
+$userData = $userStmt->fetch();
+
+$hasPassword = !empty($userData['password_hash']); // Van-e beállítva jelszó?
+
 // --- POST KÉRÉSEK KEZELÉSE ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Ellenőrizzük a CSRF tokent, ami minden űrlaphoz közös
+    // Ellenőrizzük a CSRF tokent
     if (!isset($_POST['csrf_token']) || !verifyCsrfToken($_POST['csrf_token'])) {
         $_SESSION['flash_message'] = "Érvénytelen vagy lejárt munkamenet. Kérjük, próbálja újra.";
         $_SESSION['flash_message_type'] = "error";
@@ -26,10 +34,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = '';
             $message_type = 'info';
 
-            // Email módosítás
+            // 1. Email módosítás
             if (isset($_POST['email'])) {
-                // ... (meglévő email logika) ...
-                 $newEmail = trim($_POST['email']);
+                $newEmail = trim($_POST['email']);
                 if (filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
                     $emailCheck = $db->prepare("SELECT id FROM users WHERE email = :email AND id != :id");
                     $emailCheck->execute([':email' => $newEmail, ':id' => $currentUserId]);
@@ -49,28 +56,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            // Jelszócsere
-            if (!empty($_POST['current_password']) || !empty($_POST['new_password'])) {
-                if (empty($_POST['current_password']) || empty($_POST['new_password']) || empty($_POST['confirm_new_password'])) {
-                    $message .= "Jelszóváltoztatáshoz minden jelszómező kitöltése szükséges.<br>";
+            // 2. Jelszó kezelés (JAVÍTOTT RÉSZ)
+            // Csak akkor foglalkozunk vele, ha az új jelszó mező ki van töltve
+            if (!empty($_POST['new_password'])) {
+                
+                $currentPassInput = $_POST['current_password'] ?? '';
+                $newPassInput = $_POST['new_password'];
+                $confirmPassInput = $_POST['confirm_new_password'] ?? '';
+
+                // Validációk
+                if ($hasPassword && empty($currentPassInput)) {
+                    // Ha van jelszava, de nem adta meg a régit
+                    $message .= "A jelszó módosításához meg kell adnod a jelenlegi jelszavadat.<br>";
+                    $message_type = 'error';
+                } elseif (empty($newPassInput) || empty($confirmPassInput)) {
+                    $message .= "Kérjük, add meg az új jelszót mindkét mezőben.<br>";
                     $message_type = 'warning';
-                } elseif ($_POST['new_password'] !== $_POST['confirm_new_password']) {
-                    $message .= "Az új jelszavak nem egyeznek.<br>";
+                } elseif ($newPassInput !== $confirmPassInput) {
+                    $message .= "A két új jelszó nem egyezik.<br>";
                     $message_type = 'error';
                 } else {
-                    $stmt = $db->prepare("SELECT password_hash FROM users WHERE id = :user_id");
-                    $stmt->execute([':user_id' => $currentUserId]);
-                    $userData = $stmt->fetch();
-                    if ($userData && password_verify($_POST['current_password'], $userData['password_hash'])) {
-                        $newPasswordHash = password_hash($_POST['new_password'], PASSWORD_DEFAULT);
+                    // Ellenőrzés és Csere
+                    $verificationSuccess = true;
+
+                    // Ha VAN jelszava, ellenőrizzük a régit
+                    if ($hasPassword) {
+                        if (!password_verify($currentPassInput, $userData['password_hash'])) {
+                            $message .= "A jelenlegi jelszó helytelen.<br>";
+                            $message_type = 'error';
+                            $verificationSuccess = false;
+                        }
+                    }
+
+                    // Ha minden ok (vagy nincs jelszava, vagy a régi jelszó jó volt)
+                    if ($verificationSuccess) {
+                        $newPasswordHash = password_hash($newPassInput, PASSWORD_DEFAULT);
                         $updatePassStmt = $db->prepare("UPDATE users SET password_hash = :password_hash WHERE id = :user_id");
                         if($updatePassStmt->execute([':password_hash' => $newPasswordHash, ':user_id' => $currentUserId])){
-                            $message .= "Jelszó sikeresen megváltoztatva.<br>";
+                            $message .= "Jelszó sikeresen beállítva/módosítva.<br>";
                             if($message_type != 'error') $message_type = 'success';
                         }
-                    } else {
-                        $message .= "A jelenlegi jelszó helytelen.<br>";
-                        $message_type = 'error';
                     }
                 }
             }
@@ -91,18 +116,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // Fájl: tracker/settings.php (a PHP feldolgozó blokkban)
-
+        // --- API BEÁLLÍTÁSOK MENTÉSE ---
         elseif ($action === 'save_api_settings') {
             $db->beginTransaction();
             try {
-                // Ellenőrizzük, hogy a usernek van-e már tokenje
-                $tokenCheckStmt = $db->prepare("SELECT api_token FROM users WHERE id = :id");
-                $tokenCheckStmt->execute([':id' => $currentUserId]);
-                $currentUserApiToken = $tokenCheckStmt->fetchColumn();
-
-                // Token generálása, ha megnyomták a gombot, VAGY ha még egyáltalán nincs neki
-                if (isset($_POST['regenerate_token']) || is_null($currentUserApiToken)) {
+                // Token generálása
+                if (isset($_POST['regenerate_token']) || is_null($userData['api_token'])) {
                     $newApiToken = bin2hex(random_bytes(32));
                     $updateTokenStmt = $db->prepare("UPDATE users SET api_token = :api_token WHERE id = :id");
                     $updateTokenStmt->execute([':api_token' => $newApiToken, ':id' => $currentUserId]);
@@ -123,21 +142,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
-    // A POST feldolgozása után mindig irányítsunk át, hogy elkerüljük az űrlap újraküldését.
     header('Location: ' . BASE_URL . 'tracker/settings.php');
     exit;
 }
 
-// === 2. LÉPÉS: ADATOK LEKÉRDEZÉSE A MEGJELENÍTÉSHEZ ===
+// === 2. LÉPÉS: ADATOK ELŐKÉSZÍTÉSE MEGJELENÍTÉSHEZ ===
 $pageTitle = "Beállítások";
-
-// Felhasználói adatok (e-mail és az új API mezők)
-$userStmt = $db->prepare("SELECT email, api_token, allow_api_token_creation FROM users WHERE id = :user_id");
-$userStmt->execute([':user_id' => $currentUserId]);
-$user = $userStmt->fetch();
-$currentEmail = $user['email'] ?? '';
-$apiToken = $user['api_token'] ?? null;
-$allowApiCreation = (bool)($user['allow_api_token_creation'] ?? false);
+$currentEmail = $userData['email'] ?? '';
+$apiToken = $userData['api_token'] ?? null;
+$allowApiCreation = (bool)($userData['allow_api_token_creation'] ?? false);
 
 // Alkalmazás beállítások
 $appSettings = [
@@ -145,7 +158,7 @@ $appSettings = [
     'items_per_page' => getAppSetting('items_per_page', DEFAULT_ITEMS_PER_PAGE),
 ];
 
-// === 3. LÉPÉS: HTML MEGJELENÍTÉS KEZDETE ===
+// === 3. LÉPÉS: HTML MEGJELENÍTÉS ===
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
@@ -156,7 +169,7 @@ require_once __DIR__ . '/../includes/header.php';
 <div class="settings-sections">
     <!-- Felhasználói beállítások űrlap -->
     <section class="settings-section glass-effect">
-        <h2><i class="fas fa-user-edit"></i> Felhasználói Beállítások</h2>
+        <h2><i class="fas fa-user-edit"></i> Fiók Beállítások</h2>
         <form method="POST" action="">
             <?php echo csrfInput(); ?>
             <input type="hidden" name="action" value="save_user_settings">
@@ -165,15 +178,30 @@ require_once __DIR__ . '/../includes/header.php';
                 <label for="email">Email cím:</label>
                 <input type="email" id="email" name="email" value="<?php echo escape($currentEmail); ?>" required>
             </div>
+
             <hr><br>
-            <h3>Jelszócsere</h3>
-            <div class="form-group">
-                <label for="current_password">Jelenlegi jelszó:</label>
-                <input type="password" id="current_password" name="current_password" autocomplete="current-password" placeholder="Hagyd üresen, ha nem változtatnál">
-            </div>
+            
+            <h3>
+                <?php echo $hasPassword ? 'Jelszócsere' : 'Jelszó beállítása'; ?>
+            </h3>
+            
+            <?php if (!$hasPassword): ?>
+                <div style="background: rgba(var(--accent-primary-rgb), 0.1); border-left: 4px solid var(--accent-primary); padding: 10px; margin-bottom: 15px; border-radius: 4px;">
+                    Jelenleg Google vagy Github fiókkal léptél be. Itt beállíthatsz egy jelszót, ha szeretnél hagyományos módon (email/jelszó) is belépni.
+                </div>
+            <?php endif; ?>
+
+            <!-- Csak akkor mutatjuk a jelenlegi jelszó mezőt, ha VAN jelszava -->
+            <?php if ($hasPassword): ?>
+                <div class="form-group">
+                    <label for="current_password">Jelenlegi jelszó:</label>
+                    <input type="password" id="current_password" name="current_password" autocomplete="current-password">
+                </div>
+            <?php endif; ?>
+
             <div class="form-group">
                 <label for="new_password">Új jelszó:</label>
-                <input type="password" id="new_password" name="new_password" autocomplete="new-password">
+                <input type="password" id="new_password" name="new_password" autocomplete="new-password" placeholder="<?php echo $hasPassword ? '' : 'Add meg a kívánt jelszót'; ?>">
             </div>
             <div class="form-group">
                 <label for="confirm_new_password">Új jelszó megerősítése:</label>
