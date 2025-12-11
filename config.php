@@ -7,7 +7,7 @@ define('DB_USER', 'phantomtrack'); // Változtasd meg éles környezetben!
 define('DB_PASS', 'Aa123456');     // Változtasd meg éles környezetben!
 
 // Alkalmazás URL (fontos a helyes működéshez, / jellel a végén)
-define('BASE_URL', 'http://192.168.0.86/phantomtrack/'); // Változtasd meg!
+define('BASE_URL', 'http://nbtmp.hu/phantomtrack/'); // Változtasd meg!
 
 // Alapértelmezett értékek
 define('DEFAULT_ITEMS_PER_PAGE', 10);
@@ -22,6 +22,12 @@ ini_set('session.use_only_cookies', 1);
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
+
+
+// Google OAuth beállítások
+define('GOOGLE_CLIENT_ID', '983694138482-junh75btidv3tjpe4vgjuhio47pau657.apps.googleusercontent.com');
+define('GOOGLE_CLIENT_SECRET', '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');
+define('GOOGLE_REDIRECT_URI', BASE_URL . 'tracker/google_auth.php');
 
 // Hibajelentés (fejlesztéshez)
 ini_set('display_errors', 1);

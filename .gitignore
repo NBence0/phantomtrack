@@ -3,3 +3,4 @@ config.php
 /uploads/
 /temp/
 /logs/
+/vendor/

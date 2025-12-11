@@ -6,6 +6,7 @@
     "require": {
         "php": ">=7.4",
         "geoip2/geoip2": "~2.0",
+        "google/apiclient": "^2.18",
         "matomo/device-detector": "^5.0",
         "mpdf/mpdf": "^8.2",
         "phpoffice/phpspreadsheet": "^4.4"
