@@ -110,6 +110,7 @@ require_once __DIR__ . '/../includes/header.php';
                             <button onclick="openEditUserModal(<?php echo $user['id']; ?>)" class="btn btn-small btn-secondary" title="Szerkesztés">
                                 <i class="fas fa-edit"></i>
                             </button>
+                            <a href="<?php echo BASE_URL . 'tracker/user_manager.php?id=' . $user['id']; ?>" class="btn btn-small btn-info" title="Erőforrások Kezelése"><i class="fas fa-tools"></i></a>
                             <?php if ($user['id'] != $currentUserId): ?>
                                 <button onclick="openDeleteUserModal(<?php echo $user['id']; ?>, '<?php echo escape($user['username']); ?>', <?php echo $user['token_count']; ?>)" class="btn btn-small btn-danger" title="Törlés">
                                     <i class="fas fa-trash-alt"></i>

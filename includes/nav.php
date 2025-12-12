@@ -1,22 +1,10 @@
 <?php
-// Aktuális oldal és paraméterek meghatározása a kiemeléshez
+// === Fájl: includes/sidebar.php ===
+
 $current_page = basename($_SERVER['PHP_SELF']);
+$current_uri = $_SERVER['REQUEST_URI'];
 
-// Kategória ID kiolvasása az URL-ből, ha van, a kiemeléshez
-$category_id_from_url = null;
-if (in_array($current_page, ['tokens.php', 'files.php']) && isset($_GET['category_id'])) {
-    $category_id_from_url = (int)$_GET['category_id'];
-}
-
-
-// A nav.php elején, a $navCategories lekérdezése után:
-$category_link_target_page = 'tokens.php'; // Alapértelmezett
-// Ha a jövőben a fájloknak is lesz kategóriája, itt lehetne logikát váltani:
-// if (in_array($current_page, ['files.php', 'file_requests.php'])) {
-//     $category_link_target_page = 'files.php';
-// }
-
-
+// Kategóriák lekérése a dinamikus menühöz
 $navCategories = [];
 if (function_exists('getCurrentUserId') && getCurrentUserId()) {
     $dbNav = getDB();
@@ -24,6 +12,8 @@ if (function_exists('getCurrentUserId') && getCurrentUserId()) {
     $categoriesNavStmt->execute([':user_id' => getCurrentUserId()]);
     $navCategories = $categoriesNavStmt->fetchAll();
 }
+
+$category_id_from_url = isset($_GET['category_id']) ? (int)$_GET['category_id'] : null;
 ?>
 <nav class="sidebar glass-effect">
     <div class="sidebar-header">
@@ -31,76 +21,75 @@ if (function_exists('getCurrentUserId') && getCurrentUserId()) {
            Phantom<span class="accent-text">Track</span>
         </a>
     </div>
+    
     <ul class="nav-menu">
+        <!-- FŐMENÜ -->
         <li <?php if ($current_page == 'dashboard.php') echo 'class="active"'; ?>>
-            <a href="<?php echo BASE_URL; ?>tracker/dashboard.php" title="Irányítópult"><i class="fas fa-tachometer-alt"></i><span>Irányítópult</span></a>
+            <a href="<?php echo BASE_URL; ?>tracker/dashboard.php"><i class="fas fa-tachometer-alt"></i><span>Irányítópult</span></a>
         </li>
         
         <li <?php if ($current_page == 'files.php') echo 'class="active"'; ?>>
-            <a href="<?php echo BASE_URL; ?>tracker/files.php" title="Fájlkezelő"><i class="fas fa-folder-open"></i><span>Fájlkezelő</span></a>
+            <a href="<?php echo BASE_URL; ?>tracker/files.php"><i class="fas fa-folder-open"></i><span>Fájlkezelő</span></a>
         </li>
 
-        
-        <!-- Galériák Menüpont (Illeszd be a <ul class="nav-menu"> listába) -->
-        <li class="<?php echo (strpos($_SERVER['REQUEST_URI'], 'tracker/galleries.php') !== false) ? 'active' : ''; ?>">
-            <a href="<?php echo BASE_URL; ?>tracker/galleries.php">
-                <i class="fas fa-images"></i>
-                <span>Galériák</span>
-            </a>
+        <li <?php if (strpos($current_uri, 'galleries.php') !== false) echo 'class="active"'; ?>>
+            <a href="<?php echo BASE_URL; ?>tracker/galleries.php"><i class="fas fa-images"></i><span>Galériák</span></a>
         </li>
 
-        <!-- TRACKEREK SZEKCIÓ -->
+        <!-- TRACKEREK (Tokenek + Bekérők) -->
         <?php 
             $tracker_pages = ['tokens.php', 'file_requests.php', 'permanent_requests.php', 'token_details.php'];
-            $is_tracker_section_active = in_array($current_page, $tracker_pages);
+            $is_tracker_active = in_array($current_page, $tracker_pages);
         ?>
-        <li class="<?php if($is_tracker_section_active) echo 'active '; ?>has-submenu">
-            <a href="#" title="Trackerek és Fájlbekérők"><i class="fas fa-satellite-dish"></i><span>Trackerek</span></a>
+        <li class="<?php if($is_tracker_active) echo 'active '; ?>has-submenu">
+            <a href="#"><i class="fas fa-satellite-dish"></i><span>Trackerek</span></a>
             <ul class="submenu">
                 <li <?php if ($current_page == 'tokens.php') echo 'class="active"'; ?>>
-                    <a href="<?php echo BASE_URL; ?>tracker/tokens.php" title="Követő Pixelek"><i class="fas fa-crosshairs"></i><span>Tokenek</span></a>
+                    <a href="<?php echo BASE_URL; ?>tracker/tokens.php">Pixel Követők</a>
                 </li>
                 <li <?php if ($current_page == 'file_requests.php') echo 'class="active"'; ?>>
-                    <a href="<?php echo BASE_URL; ?>tracker/file_requests.php" title="Többszöri Bekérők"><i class="fas fa-file-import"></i><span>Többszöri Bekérők</span></a>
+                    <a href="<?php echo BASE_URL; ?>tracker/file_requests.php">Egyszeri Bekérők</a>
                 </li>
                  <li <?php if ($current_page == 'permanent_requests.php') echo 'class="active"'; ?>>
-                    <a href="<?php echo BASE_URL; ?>tracker/permanent_requests.php" title="Állandó Feltöltő Linkek"><i class="fas fa-link"></i><span>Állandó Bekérők</span></a>
+                    <a href="<?php echo BASE_URL; ?>tracker/permanent_requests.php">Állandó Bekérők</a>
                 </li>
             </ul>
         </li>
         
-        <!-- KATEGÓRIÁK (DINAMIKUS ALMENÜVEL) -->
-        <?php $is_category_section_active = ($current_page == 'categories.php' || (in_array($current_page, ['tokens.php', 'files.php']) && $category_id_from_url !== null)); ?>
-        <li class="<?php if($is_category_section_active) echo 'active '; if (!empty($navCategories)) echo 'has-submenu'; ?>">
-            <a href="<?php echo BASE_URL; ?>tracker/categories.php" title="Kategóriák kezelése"><i class="fas fa-tags"></i><span>Kategóriák</span></a>
+        <!-- KATEGÓRIÁK -->
+        <?php $is_cat_active = ($current_page == 'categories.php' || $category_id_from_url !== null); ?>
+        <li class="<?php if($is_cat_active) echo 'active '; if(!empty($navCategories)) echo 'has-submenu'; ?>">
+            <a href="<?php echo BASE_URL; ?>tracker/categories.php"><i class="fas fa-tags"></i><span>Kategóriák</span></a>
             <?php if (!empty($navCategories)): ?>
                 <ul class="submenu">
-                    <!-- Link, ami az összes elemet mutatja az adott típusból (pl. "Összes Pixel Követő") -->
-                    <li <?php if ((in_array($current_page, ['tokens.php', 'files.php'])) && $category_id_from_url === null) echo 'class="active"'; ?>>
-                        <a href="<?php echo BASE_URL . 'tracker/' . ($current_page == 'files.php' ? 'files.php' : 'tokens.php'); ?>" title="Minden elem kategória nélkül">Összes (aktuális nézet)</a>
-                    </li>
-                    <li class="submenu-divider"><hr></li>
+                    <li class="submenu-header" style="padding:5px 15px; font-size:0.8em; color:#666; text-transform:uppercase;">Szűrés (Tokenek):</li>
                     <?php foreach ($navCategories as $cat): ?>
                         <li <?php if ($category_id_from_url === $cat['id']) echo 'class="active"'; ?>>
-                             <!-- A link attól függően változik, hogy a files.php-n vagy a tokens.php-n vagyunk -->
-                            <a href="<?php echo BASE_URL . 'tracker/' . $category_link_target_page; ?>?category_id=<?php echo $cat['id']; ?>"><?php echo escape($cat['name']); ?></a>
+                            <a href="<?php echo BASE_URL; ?>tracker/tokens.php?category_id=<?php echo $cat['id']; ?>">
+                                <?php echo escape($cat['name']); ?>
+                            </a>
                         </li>
                     <?php endforeach; ?>
                 </ul>
             <?php endif; ?>
         </li>
         
+        <!-- RENDSZER -->
+        <li class="menu-divider"><hr style="border-color:rgba(255,255,255,0.1); margin:10px 0;"></li>
+        
         <li <?php if ($current_page == 'settings.php') echo 'class="active"'; ?>>
-            <a href="<?php echo BASE_URL; ?>tracker/settings.php" title="Beállítások"><i class="fas fa-cog"></i><span>Beállítások</span></a>
+            <a href="<?php echo BASE_URL; ?>tracker/settings.php"><i class="fas fa-cog"></i><span>Beállítások</span></a>
         </li>
+        
         <?php if (isAdmin()): ?>
-            <li <?php if ($current_page == 'users.php') echo 'class="active"'; ?>>
-                <a href="<?php echo BASE_URL; ?>tracker/users.php" title="Felhasználók"><i class="fas fa-users-cog"></i><span>Felhasználók</span></a>
+            <li <?php if ($current_page == 'users.php' || $current_page == 'user_manager.php') echo 'class="active"'; ?>>
+                <a href="<?php echo BASE_URL; ?>tracker/users.php"><i class="fas fa-users-cog"></i><span>Felhasználók</span></a>
             </li>
         <?php endif; ?>
     </ul>
+    
     <div class="sidebar-footer">
-        <p>Bejelentkezve: <?php echo escape(getCurrentUsername()); ?></p>
+        <p>Bejelentkezve: <strong><?php echo escape(getCurrentUsername()); ?></strong></p>
         <a href="<?php echo BASE_URL; ?>tracker/logout.php" class="btn btn-secondary"><i class="fas fa-sign-out-alt"></i><span>Kijelentkezés</span></a>
     </div>
 </nav>

@@ -710,7 +710,6 @@ switch ($action) {
         $description = trim($_POST['description'] ?? '');
         $visibility = $_POST['visibility'] ?? 'private';
         $password = $_POST['password'] ?? '';
-        $usePrettyUrl = isset($_POST['use_pretty_url']) ? 1 : 0;
         
         if (empty($name)) {
             $response['message'] = 'A galéria neve kötelező.';
@@ -728,7 +727,7 @@ switch ($action) {
         
         $viewToken = bin2hex(random_bytes(16)); // Egyedi linkhez
         
-        $stmt = $db->prepare("INSERT INTO galleries (user_id, name, slug, use_pretty_url, description, visibility, password_hash, view_token) VALUES (:uid, :name, :slug, :upu, :desc, :vis, :pass, :token)");
+        $stmt = $db->prepare("INSERT INTO galleries (user_id, name, slug, description, visibility, password_hash, view_token) VALUES (:uid, :name, :slug, :desc, :vis, :pass, :token)");
         if ($stmt->execute([
             ':uid' => $currentUserId,
             ':name' => $name,
@@ -737,7 +736,6 @@ switch ($action) {
             ':vis' => $visibility,
             ':pass' => $passwordHash,
             ':token' => $viewToken,
-            ':upu' => $usePrettyUrl
         ])) {
             $response['success'] = true;
             $response['message'] = 'Galéria sikeresen létrehozva.';
