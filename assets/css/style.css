@@ -83,7 +83,7 @@
     --color-info: var(--accent-secondary);
 
     /* Glassmorphism effektus */
-    --glass-bg: rgba(30, 30, 50, 0.5);
+    --glass-bg: rgba(30, 30, 50, 0.75);
     --glass-bg-hover: rgba(45, 45, 70, 0.65);
     --glass-border: rgba(255, 255, 255, 0.15);
     --glass-border-strong: rgba(255, 255, 255, 0.25);

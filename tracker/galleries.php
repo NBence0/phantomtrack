@@ -26,6 +26,11 @@ $stmt = $db->prepare("
 $stmt->execute([':user_id' => $currentUserId]);
 $galleries = $stmt->fetchAll();
 
+// Kategóriák a modalhoz
+$catsStmt = $db->prepare("SELECT id, name FROM token_categories WHERE user_id = :uid ORDER BY name ASC");
+$catsStmt->execute([':uid' => $currentUserId]);
+$userCategories = $catsStmt->fetchAll();
+
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
@@ -132,6 +137,25 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
             </div>
+            <!-- KATEGÓRIA VÁLASZTÓ -->
+            <div class="form-group">
+                <label>Kategória:</label>
+                <div class="custom-select-wrapper">
+                    <select name="category_id" id="create_category_select" style="display:none;">
+                        <option value="null">🚫 Nincs kategória</option>
+                        <?php foreach ($userCategories as $cat): ?>
+                            <option value="<?php echo $cat['id']; ?>"><?php echo escape($cat['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div class="select-trigger">🚫 Nincs kategória</div>
+                    <div class="custom-options">
+                        <span class="custom-option selected" data-value="null">🚫 Nincs kategória</span>
+                        <?php foreach ($userCategories as $cat): ?>
+                            <span class="custom-option" data-value="<?php echo $cat['id']; ?>"><?php echo escape($cat['name']); ?></span>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
             
             <div class="form-group" id="passwordGroup" style="display:none;">
                 <label for="gallery_password">Jelszó:</label>
@@ -180,6 +204,26 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
             </div>
+            <!-- KATEGÓRIA VÁLASZTÓ (Szerkesztés) -->
+            <div class="form-group">
+                <label>Kategória:</label>
+                <div class="custom-select-wrapper" id="editCategoryWrapper">
+                    <select name="category_id" id="edit_category_select" style="display:none;">
+                        <option value="null">🚫 Nincs kategória</option>
+                        <?php foreach ($userCategories as $cat): ?>
+                            <option value="<?php echo $cat['id']; ?>"><?php echo escape($cat['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div class="select-trigger">🚫 Nincs kategória</div>
+                    <div class="custom-options">
+                        <span class="custom-option" data-value="null">🚫 Nincs kategória</span>
+                        <?php foreach ($userCategories as $cat): ?>
+                            <span class="custom-option" data-value="<?php echo $cat['id']; ?>"><?php echo escape($cat['name']); ?></span>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+
             <div class="form-group" id="editPasswordGroup" style="display:none;">
                 <label for="edit_password">Új Jelszó (hagyd üresen, ha nem változik):</label>
                 <input type="password" id="edit_password" name="password" placeholder="***">
@@ -407,6 +451,8 @@ require_once __DIR__ . '/../includes/header.php';
             showDynamicMessage('A böngésző nem engedi a másolást.', 'error');
         }
     }
+
+    
     // Adatok betöltése és modal nyitása
     function editGallery(id) {
         // 1. Adatok lekérése AJAX-szal
@@ -423,12 +469,35 @@ require_once __DIR__ . '/../includes/header.php';
                 document.getElementById('edit_gallery_id').value = g.id;
                 document.getElementById('edit_name').value = g.name;
                 document.getElementById('edit_desc').value = g.description;
-                document.getElementById('edit_visibility').value = g.visibility;
                 
-                toggleEditPassword(); // Jelszó mező mutatása/rejtése
+                // Láthatóság UI frissítése
+                updateCustomSelect('editVisibilityWrapper', 'edit_visibility', g.visibility);
+                
+                // Kategória UI frissítése
+                updateCustomSelect('editCategoryWrapper', 'edit_category_select', g.category_id || 'null');
+                
+                toggleEditPassword();
                 document.getElementById('editGalleryModal').style.display = 'block';
             } else {
                 showDynamicMessage(data.message, 'error');
+            }
+        });
+    }
+
+    // Segédfüggvény a custom select frissítéséhez (ugyanaz, mint a files.php-ban)
+    function updateCustomSelect(wrapperId, selectId, value) {
+        const wrapper = document.getElementById(wrapperId);
+        const select = document.getElementById(selectId);
+        const trigger = wrapper.querySelector('.select-trigger');
+        const options = wrapper.querySelectorAll('.custom-option');
+        
+        select.value = value;
+        options.forEach(opt => {
+            if (opt.dataset.value == value) {
+                opt.classList.add('selected');
+                trigger.textContent = opt.textContent;
+            } else {
+                opt.classList.remove('selected');
             }
         });
     }

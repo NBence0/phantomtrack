@@ -102,6 +102,11 @@ $galleriesStmt = $db->prepare("SELECT id, name FROM galleries WHERE user_id = :u
 $galleriesStmt->execute([':uid' => $currentUserId]);
 $userGalleries = $galleriesStmt->fetchAll();
 
+// Kategóriák a modalhoz
+$catsStmt = $db->prepare("SELECT id, name FROM token_categories WHERE user_id = :uid ORDER BY name ASC");
+$catsStmt->execute([':uid' => $currentUserId]);
+$userCategories = $catsStmt->fetchAll();
+
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
@@ -110,7 +115,6 @@ require_once __DIR__ . '/../includes/header.php';
     .filter-form { position: relative; z-index: 100; }
     .custom-options { 
         z-index: 1001 !important;
-        background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)),var(--glass-bg); 
     }
     /* Gomb elrejtése, ha JS működik */
     .js-active .filter-submit-btn { display: none; }
@@ -315,7 +319,7 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
                 <div class="file-actions">
                     <a href="<?php echo BASE_URL . 'View.php?id=' . $file['view_token']; ?>" target="_blank" title="Megtekintés"><i class="fas fa-eye"></i></a>
-                    <a href="#" onclick="openSetGalleryModal(<?php echo $file['id']; ?>, <?php echo $file['gallery_id'] ?: 'null'; ?>); return false;" title="Galéria Módosítása"><i class="fas fa-folder"></i></a>
+                    <a href="#" onclick="openSetGalleryModal(<?php echo $file['id']; ?>, <?php echo $file['gallery_id'] ?: 'null'; ?>, <?php echo $file['category_id'] ?: 'null'; ?>);" title="Galéria Módosítása"><i class="fas fa-folder"></i></a>
                     <a href="#" onclick="deleteFile(<?php echo $file['id']; ?>, '<?php echo escape(addslashes($file['original_filename'])); ?>', this); return false;" title="Törlés" style="color:var(--color-error);"><i class="fas fa-trash-alt"></i></a>
                 </div>
             </div>
@@ -353,7 +357,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <td data-label="Műveletek">
                             <div class="action-buttons">
                                 <a href="<?php echo BASE_URL . 'View.php?id=' . $file['view_token']; ?>" target="_blank" title="Megtekintés"  class="btn btn-small btn-info"><i class="fas fa-eye"></i></a>
-                                <a href="#" onclick="openSetGalleryModal(<?php echo $file['id']; ?>, <?php echo $file['gallery_id'] ?: 'null'; ?>); return false;" class="btn btn-small btn-secondary"><i class="fas fa-folder"></i></a>
+                                <a href="#" onclick="openSetGalleryModal(<?php echo $file['id']; ?>, <?php echo $file['gallery_id'] ?: 'null'; ?>, <?php echo $file['category_id'] ?: 'null'; ?>);" class="btn btn-small btn-secondary"><i class="fas fa-folder"></i></a>
                                 <button onclick="deleteFile(<?php echo $file['id']; ?>, 'x', this)" class="btn btn-small btn-danger"><i class="fas fa-trash-alt"></i></button>
                             </div>
                         </td>
@@ -411,18 +415,48 @@ require_once __DIR__ . '/../includes/header.php';
 <div id="setGalleryModal" class="modal">
     <div class="modal-content glass-effect">
         <span class="close-btn" onclick="document.getElementById('setGalleryModal').style.display='none'">×</span>
-        <h2><i class="fas fa-images"></i> Galéria Hozzárendelése</h2>
+        <h2><i class="fas fa-images"></i> Hozzárendelések</h2>
         <form id="setGalleryForm">
-            <input type="hidden" name="action" value="assign_file_gallery">
+            <input type="hidden" name="action" value="assign_file_properties">
             <input type="hidden" name="file_id" id="assign_file_id">
             <input type="hidden" name="csrf_token" value="<?php echo generateCsrfToken(); ?>">
+
+            <!-- GALÉRIA VÁLASZTÓ (Custom Select) -->
             <div class="form-group">
-                <select name="gallery_id" id="assign_gallery_select" class="form-control" style="background:#222; color:white; padding:10px; display:block;">
-                    <option value="null">🚫 Nincs galéria (Leválasztás)</option>
-                    <?php foreach ($userGalleries as $gal): ?>
-                        <option value="<?php echo $gal['id']; ?>"><?php echo escape($gal['name']); ?></option>
-                    <?php endforeach; ?>
-                </select>
+                <label>Galéria:</label>
+                <div class="custom-select-wrapper" id="assignGalleryWrapper">
+                    <select name="gallery_id" id="assign_gallery_select" style="display:none;">
+                        <option value="null">🚫 Nincs galéria</option>
+                        <?php foreach ($userGalleries as $gal): ?>
+                            <option value="<?php echo $gal['id']; ?>"><?php echo escape($gal['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div class="select-trigger">🚫 Nincs galéria</div>
+                    <div class="custom-options">
+                        <span class="custom-option" data-value="null">🚫 Nincs galéria</span>
+                        <?php foreach ($userGalleries as $gal): ?>
+                            <span class="custom-option" data-value="<?php echo $gal['id']; ?>"><?php echo escape($gal['name']); ?></span>
+                        <?php endforeach; ?>
+                    </div>
+            </div>
+            <!-- KATEGÓRIA VÁLASZTÓ (Custom Select) -->
+            <div class="form-group">
+                <label>Kategória:</label>
+                <div class="custom-select-wrapper" id="assignCategoryWrapper">
+                    <select name="category_id" id="assign_category_select" style="display:none;">
+                        <option value="null">🚫 Nincs kategória</option>
+                        <?php foreach ($userCategories as $cat): ?>
+                            <option value="<?php echo $cat['id']; ?>"><?php echo escape($cat['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div class="select-trigger">🚫 Nincs kategória</div>
+                    <div class="custom-options">
+                        <span class="custom-option" data-value="null">🚫 Nincs kategória</span>
+                        <?php foreach ($userCategories as $cat): ?>
+                            <span class="custom-option" data-value="<?php echo $cat['id']; ?>"><?php echo escape($cat['name']); ?></span>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
             </div>
             <button type="submit" class="btn btn-primary btn-block">Mentés</button>
         </form>
@@ -442,9 +476,30 @@ require_once __DIR__ . '/../includes/header.php';
         }
     });
 
-    function openSetGalleryModal(fileId, currentGalleryId) {
+    function openSetGalleryModal(fileId, currentGalleryId, currentCategoryId) {
         document.getElementById('assign_file_id').value = fileId;
-        document.getElementById('assign_gallery_select').value = currentGalleryId || 'null';
+        
+        // Helper a UI frissítéshez
+        function updateCustomSelect(wrapperId, selectId, value) {
+            const wrapper = document.getElementById(wrapperId);
+            const select = document.getElementById(selectId);
+            const trigger = wrapper.querySelector('.select-trigger');
+            const options = wrapper.querySelectorAll('.custom-option');
+            
+            select.value = value;
+            options.forEach(opt => {
+                if (opt.dataset.value == value) {
+                    opt.classList.add('selected');
+                    trigger.textContent = opt.textContent;
+                } else {
+                    opt.classList.remove('selected');
+                }
+            });
+        }
+
+        updateCustomSelect('assignGalleryWrapper', 'assign_gallery_select', currentGalleryId || 'null');
+        updateCustomSelect('assignCategoryWrapper', 'assign_category_select', currentCategoryId || 'null');
+        
         document.getElementById('setGalleryModal').style.display = 'block';
     }
 

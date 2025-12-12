@@ -32,7 +32,7 @@ $isGalleryUpload = false;
 // 1. Eset: Publikus feltöltési link (eredeti működés)
 if ($uploadTokenValue && $uploadTokenValue !== 'undefined') {
     $tokenStmt = $db->prepare("
-        SELECT id, user_id, token_type, max_uploads, name, upload_count, is_active, expiry_time, webhook_url
+        SELECT id, user_id, token_type, max_uploads, name, upload_count, is_active, expiry_time, webhook_url, category_id
         FROM tokens
         WHERE token_value = :token_value
     ");
@@ -62,7 +62,7 @@ if ($uploadTokenValue && $uploadTokenValue !== 'undefined') {
     $currentUserId = getCurrentUserId();
     
     // Ellenőrizzük, hogy a galéria az övé-e
-    $galStmt = $db->prepare("SELECT id, user_id FROM galleries WHERE id = :id AND user_id = :uid");
+    $galStmt = $db->prepare("SELECT id, user_id, category_id FROM galleries WHERE id = :id AND user_id = :uid");
     $galStmt->execute([':id' => $galleryId, ':uid' => $currentUserId]);
     $gallery = $galStmt->fetch();
     
@@ -96,6 +96,18 @@ if (isset($_POST['chunk'])) {
     $fileIdForChunks = preg_replace('/[^a-zA-Z0-9-]/', '', $_POST['file_id']);
     $chunkDir = $uploadPath . 'chunks/' . $fileIdForChunks;
 
+    // Kategória meghatározása (Tokené vagy Galériáé)
+    $targetCategoryId = null;
+    if (!$isGalleryUpload && isset($token['category_id'])) {
+        $targetCategoryId = $token['category_id']; // Bekérőnél öröklődik!
+    } elseif ($isGalleryUpload && isset($gallery['category_id'])) {
+        // Galériánál NEM öröklődik a kérésed szerint ("ne legyenek benne")
+        // Ha mégis akarod, vedd ki a kommentet:
+        // $targetCategoryId = $gallery['category_id']; 
+        $targetCategoryId = null; 
+    }
+
+
     if (!is_dir($chunkDir)) @mkdir($chunkDir, 0777, true);
     $chunkFile = $chunkDir . '/chunk_' . $chunkIndex;
 
@@ -111,8 +123,8 @@ if (isset($_POST['chunk'])) {
 
             $viewToken = generateFileViewToken();
             $fileInsertStmt = $db->prepare(
-                "INSERT INTO files (user_id, upload_token_id, gallery_id, stored_filename, original_filename, file_size, mime_type, upload_ip, view_token)
-                 VALUES (:user_id, :token_id, :gallery_id, :stored, :original, 0, 'application/octet-stream', :ip, :view_token)"
+                "INSERT INTO files (user_id, upload_token_id, gallery_id, stored_filename, original_filename, file_size, mime_type, upload_ip, view_token, category_id)
+                 VALUES (:user_id, :token_id, :gallery_id, :stored, :original, 0, 'application/octet-stream', :ip, :view_token, :cat_id)"
             );
             $fileInsertStmt->execute([
                 ':user_id' => $targetUserId,
@@ -122,6 +134,7 @@ if (isset($_POST['chunk'])) {
                 ':original' => $originalName,
                 ':ip' => getIpAddress(),
                 ':view_token' => $viewToken,
+                ':cat_id' => $targetCategoryId,
             ]);
             $finalFileId = $db->lastInsertId();
             $storedFileName = (string)$finalFileId;
@@ -202,14 +215,26 @@ if (isset($_POST['chunk'])) {
 
 // 4. Direkt feltöltés kezelése (Hasonló módosításokkal)
 try {
+
+    // Kategória meghatározása (Tokené vagy Galériáé)
+    $targetCategoryId = null;
+    if (!$isGalleryUpload && isset($token['category_id'])) {
+        $targetCategoryId = $token['category_id']; // Bekérőnél öröklődik!
+    } elseif ($isGalleryUpload && isset($gallery['category_id'])) {
+        // Galériánál NEM öröklődik a kérésed szerint ("ne legyenek benne")
+        // Ha mégis akarod, vedd ki a kommentet:
+        // $targetCategoryId = $gallery['category_id']; 
+        $targetCategoryId = null; 
+    }
+
     $db->beginTransaction();
 
     $viewToken = generateFileViewToken();
     $mimeType = mime_content_type($file['tmp_name']) ?: 'application/octet-stream';
 
     $fileInsertStmt = $db->prepare(
-        "INSERT INTO files (user_id, upload_token_id, gallery_id, stored_filename, original_filename, file_size, mime_type, upload_ip, view_token)
-         VALUES (:user_id, :token_id, :gallery_id, :stored, :original, :size, :mime, :ip, :view_token)"
+        "INSERT INTO files (user_id, upload_token_id, gallery_id, stored_filename, original_filename, file_size, mime_type, upload_ip, view_token, category_id)
+         VALUES (:user_id, :token_id, :gallery_id, :stored, :original, :size, :mime, :ip, :view_token, :cat_id)"
     );
     $fileInsertStmt->execute([
         ':user_id' => $targetUserId,
@@ -220,7 +245,8 @@ try {
         ':size' => $file['size'],
         ':mime' => $mimeType,
         ':ip' => getIpAddress(),
-        ':view_token' => $viewToken
+        ':view_token' => $viewToken,
+        ':cat_id' => $targetCategoryId
     ]);
     $newFileId = $db->lastInsertId();
     $storedFileName = (string)$newFileId;

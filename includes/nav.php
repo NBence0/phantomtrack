@@ -57,13 +57,14 @@ $category_id_from_url = isset($_GET['category_id']) ? (int)$_GET['category_id'] 
             <?php if (!empty($navCategories)): ?>
                 <ul class="submenu">
                     <li class="submenu-header" style="padding:5px 15px; font-size:0.8em; color:#666; text-transform:uppercase;">Szűrés (Tokenek):</li>
-                    <?php foreach ($navCategories as $cat): ?>
-                        <li <?php if ($category_id_from_url === $cat['id']) echo 'class="active"'; ?>>
-                            <a href="<?php echo BASE_URL; ?>tracker/tokens.php?category_id=<?php echo $cat['id']; ?>">
-                                <?php echo escape($cat['name']); ?>
-                            </a>
-                        </li>
-                    <?php endforeach; ?>
+                <?php foreach ($navCategories as $cat): ?>
+                    <li <?php if (isset($_GET['id']) && $_GET['id'] == $cat['id'] && strpos($current_page, 'category_view.php') !== false) echo 'class="active"'; ?>>
+                        <!-- ÚJ LINK: category_view.php -->
+                        <a href="<?php echo BASE_URL; ?>tracker/category_view.php?id=<?php echo $cat['id']; ?>">
+                            <?php echo escape($cat['name']); ?>
+                        </a>
+                    </li>
+                <?php endforeach; ?>
                 </ul>
             <?php endif; ?>
         </li>

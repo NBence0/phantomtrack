@@ -56,28 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     exit;
 }
 
-if (isset($_GET['action'])) {
-    // ... a GET alapú műveletek (törlés, státuszváltás) logikája itt van ...
-    // Példa: státuszváltás
-    $tokenId = (int)($_GET['id'] ?? 0);
-    if ($_GET['action'] === 'toggle_status' && $tokenId > 0) {
-        $stmt = $db->prepare("UPDATE tokens SET is_active = NOT is_active WHERE id = :id AND user_id = :user_id");
-        $stmt->execute([':id' => $tokenId, ':user_id' => $currentUserId]);
-        $_SESSION['flash_message'] = "Token státusza frissítve.";
-        $_SESSION['flash_message_type'] = "success";
-        
-        $redirectUrl = BASE_URL . 'tracker/tokens.php';
-        if (isset($_GET['category_id'])) {
-            $redirectUrl .= '?category_id=' . (int)$_GET['category_id'];
-        } elseif (isset($_GET['page'])) {
-            $redirectUrl .= '?page=' . (int)$_GET['page'];
-        }
-        header('Location: ' . $redirectUrl);
-        exit;
-    }
-}
-
-// ITT KELL KIEGÉSZÍTENI
+// GET MŰVELETEK
 if (isset($_GET['action'])) {
     // --- CSRF VÉDELEM GET ALAPÚ MŰVELETEKRE ---
     // Szigorúbb biztonságért a GET alapú állapotváltoztató műveleteket is védeni kellene.
@@ -140,8 +119,8 @@ $availableCategories = $categoriesStmt->fetchAll();
 // --- SZŰRÉSI ÉS RENDEZÉSI LOGIKA ---
 $filterCategoryId = isset($_GET['category_id']) ? (int)$_GET['category_id'] : null;
 
-// ÚJ: Rendezési paraméterek
-$allowedSortColumns = ['name', 'description', 'is_active', 'created_at', 'category_name'];
+// JAVÍTVA: log_count hozzáadva az engedélyezett oszlopokhoz
+$allowedSortColumns = ['name', 'description', 'is_active', 'created_at', 'category_name', 'log_count'];
 $sort = $_GET['sort'] ?? 'created_at';
 $dir = $_GET['dir'] ?? 'desc';
 
@@ -149,18 +128,19 @@ $dir = $_GET['dir'] ?? 'desc';
 if (!in_array($sort, $allowedSortColumns)) $sort = 'created_at';
 if (!in_array($dir, ['asc', 'desc'])) $dir = 'desc';
 
-// SQL Oszlopok megfeleltetése (mivel JOIN van)
+// JAVÍTVA: log_count eset lekezelése
 switch ($sort) {
     case 'category_name': $sqlSortColumn = 'tc.name'; break;
     case 'name': $sqlSortColumn = 't.name'; break;
     case 'description': $sqlSortColumn = 't.description'; break;
     case 'is_active': $sqlSortColumn = 't.is_active'; break;
+    case 'log_count': $sqlSortColumn = 'log_count'; break; // Ez hiányzott
     case 'created_at': default: $sqlSortColumn = 't.created_at'; break;
 }
 $sqlSortDir = strtoupper($dir);
 // ------------------------------------
 
-// Az SQL feltétel és a paraméterek dinamikus összeállítása
+// SQL WHERE
 $sqlWhereParts = ["t.user_id = :user_id"];
 $queryParams = [':user_id' => $currentUserId];
 
@@ -179,13 +159,12 @@ if ($filterCategoryId !== null) {
 
 $sqlWhere = "WHERE " . implode(" AND ", $sqlWhereParts);
 
-// ... (A lapozás és a lekérdezés többi része ugyanígy használja az $sqlWhere-t és a $queryParams-ot, ahogy a régi kód is)
-// FONTOS: a `totalTokensStmt` és a `tokens` lekérdező `stmt` is az új, dinamikus $queryParams tömbbel kell, hogy fusson.
+// Összes találat száma
 $totalTokensStmt = $db->prepare("SELECT COUNT(t.id) FROM tokens t " . $sqlWhere);
 $totalTokensStmt->execute($queryParams);
 $totalTokens = $totalTokensStmt->fetchColumn();
 
-// Lapozási változók
+// Lapozás
 $itemsPerPage = (int)getAppSetting('items_per_page', 10);
 $totalPages = $totalTokens > 0 ? ceil($totalTokens / $itemsPerPage) : 1;
 $currentPage = isset($_GET['page']) ? (int)$_GET['page'] : 1;
@@ -193,11 +172,12 @@ if ($currentPage < 1) $currentPage = 1;
 if ($currentPage > $totalPages) $currentPage = $totalPages;
 $offset = ($currentPage - 1) * $itemsPerPage;
 
-// Végleges lekérdezés lapozással és RENDEZÉSSEL
+// Fő lekérdezés
 $sqlQuery = "SELECT 
                 t.id, t.token_value, t.name, t.description, t.is_active, t.created_at, 
                 t.category_id AS token_category_link_id, 
-                tc.name as category_name 
+                tc.name as category_name,
+                (SELECT COUNT(*) FROM activity_logs WHERE token_id = t.id) as log_count 
              FROM 
                 tokens t 
              LEFT JOIN 
@@ -218,7 +198,7 @@ $stmt->execute();
 $tokens = $stmt->fetchAll();
 
 
-// === 3. LÉPÉS: HTML MEGJELENÍTÉS KEZDETE ===
+// === 3. LÉPÉS: HTML MEGJELENÍTÉS ===
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
@@ -227,27 +207,25 @@ require_once __DIR__ . '/../includes/header.php';
     <button class="btn btn-primary" onclick="document.getElementById('addTokenModal').style.display='block'"><i class="fas fa-plus"></i> Új Token</button>
 </div>
 
-<?php 
-// A modális ablak behívása a külön fájlból
-include __DIR__ . '/../includes/tokens_modals.php'; 
-?>
+<?php include __DIR__ . '/../includes/tokens_modals.php'; ?>
 
 <div class="table-container glass-effect">
     <table>
         <?php
-        // === TABLE HELPER HASZNÁLATA ===
+        // JAVÍTVA: Szélességek és log_count helyes beillesztése
         $table = new TableHelper($sort, $dir);
         $table->addColumn('name', 'Név (Kategória)', true);
         $table->addColumn('pixel_url', 'Pixel URL', false);
         $table->addColumn('description', 'Leírás', true);
-        $table->addColumn('is_active', 'Státusz', true);
-        $table->addColumn('created_at', 'Létrehozva', true);
-        $table->addColumn('actions', 'Műveletek', false, '', 'right'); // Ha a TableHelper támogatja az alignmentet, ha nem, a CSS megoldja
+        $table->addColumn('log_count', 'Megnyitás', true, '100px'); // Itt a center helyett pixel szélesség
+        $table->addColumn('is_active', 'Státusz', true, '100px');
+        $table->addColumn('created_at', 'Létrehozva', true, '160px');
+        $table->addColumn('actions', 'Műveletek', false, '140px');
         $table->render();
         ?>
         <tbody>
             <?php if (empty($tokens)): ?>
-                <tr><td colspan="6" style="text-align:center;">Nincsenek tokenek ebben a nézetben.</td></tr>
+                <tr><td colspan="7" style="text-align:center;">Nincsenek tokenek ebben a nézetben.</td></tr>
             <?php else: ?>
                 <?php foreach ($tokens as $token): ?>
                 <tr>
@@ -255,16 +233,8 @@ include __DIR__ . '/../includes/tokens_modals.php';
                         <a href="<?php echo BASE_URL . 'tracker/token_details.php?id=' . $token['id']; ?>">
                             <?php echo escape($token['name']); ?>
                         </a>
-
-                        <?php 
-                        // JAVÍTÁS:
-                        // Csak azt ellenőrizzük, hogy a `category_name` nem üres-e.
-                        // Mivel a `LEFT JOIN` NULL-t ad vissza, ha nincs egyezés, ez a tökéletes feltétel.
-                        if (isset($token['category_name']) && $token['category_name'] !== null): 
-                        ?>
-                            <a href="?category_id=<?php echo (int)$token['token_category_link_id']; ?>" 
-                            class="category-tag" 
-                            title="Szűrés erre a kategóriára: <?php echo escape($token['category_name']); ?>">
+                        <?php if (isset($token['category_name']) && $token['category_name'] !== null): ?>
+                            <a href="?category_id=<?php echo (int)$token['token_category_link_id']; ?>" class="category-tag">
                                 <i class="fas fa-tag"></i> <?php echo escape($token['category_name']); ?>
                             </a>
                         <?php endif; ?>
@@ -275,9 +245,12 @@ include __DIR__ . '/../includes/tokens_modals.php';
                     </td>
                     <td data-label="Leírás">
                         <?php 
-                            $description = $token['description'] ?? ''; // Ha null, legyen üres string
+                            $description = $token['description'] ?? ''; 
                             echo nl2br(escape(substr($description, 0, 50) . (strlen($description) > 50 ? '...' : ''))); 
                         ?>
+                    </td>
+                    <td data-label="Megnyitás" style="text-align: center; font-weight: bold;">
+                        <?php echo number_format($token['log_count']); ?>
                     </td>
                     <td data-label="Státusz">
                         <?php if ($token['is_active']): ?>
@@ -311,7 +284,6 @@ include __DIR__ . '/../includes/tokens_modals.php';
     <?php if ($totalPages > 1): ?>
     <div class="pagination glass-effect">
         <?php
-        // Paraméterek megőrzése (sort, dir, category_id) a lapozásnál
         $queryParamsForPagination = $_GET;
         unset($queryParamsForPagination['page']);
         $paginationUrlParams = http_build_query($queryParamsForPagination);

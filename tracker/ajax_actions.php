@@ -698,6 +698,7 @@ switch ($action) {
         $slug = createSlug($name);
         // Egyediség ellenőrzése (ha már van ilyen slugja a usernek, teszünk mögé számot)
         $originalSlug = $slug;
+        $categoryId = (!empty($_POST['category_id']) && $_POST['category_id'] !== 'null') ? (int)$_POST['category_id'] : null;
         $counter = 1;
         while(true) {
             $check = $db->prepare("SELECT id FROM galleries WHERE user_id = :uid AND slug = :slug");
@@ -727,7 +728,7 @@ switch ($action) {
         
         $viewToken = bin2hex(random_bytes(16)); // Egyedi linkhez
         
-        $stmt = $db->prepare("INSERT INTO galleries (user_id, name, slug, description, visibility, password_hash, view_token) VALUES (:uid, :name, :slug, :desc, :vis, :pass, :token)");
+        $stmt = $db->prepare("INSERT INTO galleries (user_id, name, slug, description, visibility, password_hash, view_token, category_id) VALUES (:uid, :name, :slug, :desc, :vis, :pass, :token, :cat_id)");
         if ($stmt->execute([
             ':uid' => $currentUserId,
             ':name' => $name,
@@ -736,6 +737,7 @@ switch ($action) {
             ':vis' => $visibility,
             ':pass' => $passwordHash,
             ':token' => $viewToken,
+            ':cat_id' => $categoryId
         ])) {
             $response['success'] = true;
             $response['message'] = 'Galéria sikeresen létrehozva.';
@@ -809,7 +811,7 @@ switch ($action) {
     // --- GALÉRIA LEKÉRDEZÉS (Szerkesztéshez) ---
     case 'get_gallery_details':
         $gid = (int)$_POST['gallery_id'];
-        $stmt = $db->prepare("SELECT id, name, description, visibility FROM galleries WHERE id = :id AND user_id = :uid");
+        $stmt = $db->prepare("SELECT id, name, description, visibility, category_id FROM galleries WHERE id = :id AND user_id = :uid");
         $stmt->execute([':id' => $gid, ':uid' => $currentUserId]);
         $gal = $stmt->fetch(PDO::FETCH_ASSOC);
         
@@ -829,6 +831,7 @@ switch ($action) {
         $vis = $_POST['visibility'];
         $pass = $_POST['password'];
 
+        $categoryId = (!empty($_POST['category_id']) && $_POST['category_id'] !== 'null') ? (int)$_POST['category_id'] : null;
         // Slug generálás
         $slug = createSlug($name);
         // Egyediség ellenőrzése (ha már van ilyen slugja a usernek, teszünk mögé számot)
@@ -851,8 +854,8 @@ switch ($action) {
             break;
         }
         
-        $sql = "UPDATE galleries SET name = :name, slug = :slug, description = :desc, visibility = :vis";
-        $params = [':name' => $name, ':desc' => $desc, ':vis' => $vis, ':id' => $gid, ':slug' => $slug];
+        $sql = "UPDATE galleries SET name = :name, slug = :slug, description = :desc, visibility = :vis, category_id = :cat_id";
+        $params = [':name' => $name, ':desc' => $desc, ':vis' => $vis, ':id' => $gid, ':slug' => $slug, ':cat_id' => $categoryId];
         
         // Jelszó kezelés
         if ($vis === 'password' && !empty($pass)) {
@@ -944,9 +947,11 @@ switch ($action) {
         }
         break;
     // --- FÁJL GALÉRIA HOZZÁRENDELÉS ---
-    case 'assign_file_gallery':
-        $fileId = (int)($_POST['file_id'] ?? 0);
-        $galleryId = $_POST['gallery_id'] ?? 'null'; // 'null' string vagy ID
+    case 'assign_file_properties':
+
+        $fileId = (int)$_POST['file_id'];
+        $galleryId = $_POST['gallery_id'] === 'null' ? null : (int)$_POST['gallery_id'];
+        $categoryId = $_POST['category_id'] === 'null' ? null : (int)$_POST['category_id'];
         
         // Jogosultság ellenőrzés (Fájl)
         $checkFile = $db->prepare("SELECT id FROM files WHERE id = :fid AND user_id = :uid");
@@ -970,16 +975,12 @@ switch ($action) {
             }
         }
         
-        // Frissítés
-        $upd = $db->prepare("UPDATE files SET gallery_id = :gid WHERE id = :fid");
-        if ($upd->execute([':gid' => $targetGalleryId, ':fid' => $fileId])) {
+        $upd = $db->prepare("UPDATE files SET gallery_id = :gid, category_id = :cid WHERE id = :fid AND user_id = :uid");
+        if ($upd->execute([':gid' => $galleryId, ':cid' => $categoryId, ':fid' => $fileId, ':uid' => $currentUserId])) {
             $response['success'] = true;
-            $response['message'] = 'Galéria módosítva.';
-        } else {
-            $response['message'] = 'Adatbázis hiba.';
+            $response['message'] = 'Fájl tulajdonságai frissítve.';
         }
         break;
-
     default:
         // Ha az 'action' ismeretlen, hibát adunk vissza
         $response['message'] = 'Ismeretlen művelet lett megadva.';

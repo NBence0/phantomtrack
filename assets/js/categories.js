@@ -44,6 +44,28 @@ function openDeleteCategoryModal(categoryId, categoryName, tokenCount) {
     modal.querySelector('#finalDeleteBtn').disabled = true;
     modal.style.display = 'block';
 }
+
+function openDeleteCategoryModal(id, name, tCount, gCount, fCount) {
+    document.getElementById('categoryIdToDelete').value = id;
+    document.getElementById('categoryToDeleteName').innerText = name;
+    document.getElementById('catTokenCount').innerText = tCount;
+    document.getElementById('catGalleryCount').innerText = gCount;
+    document.getElementById('catFileCount').innerText = fCount;
+    
+    // Select feltöltése (kivéve a törlendőt)
+    const select = document.getElementById('moveToCategorySelect');
+    select.innerHTML = '<option value="">-- Válassz célkategóriát --</option>';
+    allCategories.forEach(c => {
+        if(c.id != id) {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.innerText = c.name;
+            select.appendChild(opt);
+        }
+    });
+    
+    document.getElementById('deleteCategoryModal').style.display = 'block';
+}
 // === ESEMÉNYKEZELŐK BEÁLLÍTÁSA ===
 document.addEventListener('DOMContentLoaded', function() {
     // Generikus űrlapküldő függvény AJAX-hoz
