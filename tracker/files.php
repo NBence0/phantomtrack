@@ -1,10 +1,11 @@
 <?php
-// === Fájl: tracker/files.php (Végleges) ===
+// === Fájl: tracker/files.php (Végleges - TableHelperrel) ===
 
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/TableHelper.php'; // ÚJ: TableHelper behívása
 
 requireLogin();
 
@@ -16,6 +17,27 @@ $pageTitle = "Fájlkezelő";
 $view_mode = $_GET['view'] ?? ($_SESSION['file_view_mode'] ?? 'grid');
 if (!in_array($view_mode, ['grid', 'list'])) $view_mode = 'grid';
 $_SESSION['file_view_mode'] = $view_mode;
+
+// === ÚJ: RENDEZÉSI LOGIKA ===
+// Engedélyezett rendezési oszlopok
+$allowedSortColumns = ['original_filename', 'gallery_name', 'file_size', 'upload_timestamp'];
+
+// Paraméterek beolvasása (alapértelmezés: feltöltés ideje csökkenő)
+$sort = $_GET['sort'] ?? 'upload_timestamp';
+$dir = $_GET['dir'] ?? 'desc';
+
+// Biztonsági ellenőrzés
+if (!in_array($sort, $allowedSortColumns)) {
+    $sort = 'upload_timestamp';
+}
+if (!in_array($dir, ['asc', 'desc'])) {
+    $dir = 'desc';
+}
+
+// SQL oszlopnév leképezés (mert a gallery_name a 'g' táblában van, a többi az 'f'-ben)
+$sqlSortColumn = ($sort === 'gallery_name') ? 'g.name' : "f.$sort";
+$sqlSortDir = strtoupper($dir);
+// =============================
 
 // --- SZŰRÉSI LOGIKA ---
 $sqlWhereParts = ["f.user_id = :user_id"];
@@ -58,12 +80,12 @@ if ($currentPage < 1) $currentPage = 1;
 if ($currentPage > $totalPages) $currentPage = $totalPages;
 $offset = ($currentPage - 1) * $itemsPerPage;
 
-// Fájlok lekérése
+// Fájlok lekérése (MÓDOSÍTOTT ORDER BY)
 $sql = "SELECT f.*, g.name as gallery_name 
         FROM files f 
         LEFT JOIN galleries g ON f.gallery_id = g.id 
         " . $sqlWhere . " 
-        ORDER BY f.upload_timestamp DESC 
+        ORDER BY $sqlSortColumn $sqlSortDir 
         LIMIT :limit OFFSET :offset";
 
 $filesStmt = $db->prepare($sql);
@@ -200,6 +222,7 @@ require_once __DIR__ . '/../includes/header.php';
         <a href="?<?php echo http_build_query(array_merge($_GET, ['view' => 'list', 'page' => null])); ?>" class="btn btn-small <?php echo $view_mode === 'list' ? 'btn-primary' : 'btn-secondary'; ?>"><i class="fas fa-bars"></i></a>
     </div>
     <div class="header-actions">
+        <a href="<?php echo BASE_URL; ?>tracker/file_stats.php" class="btn btn-primary"><i class="fas fa-info"></i> Statisztika</a>
         <a href="<?php echo BASE_URL; ?>tracker/file_requests.php" class="btn btn-primary"><i class="fas fa-plus"></i> Új Fájlbekérő</a>
     </div>
 </div>
@@ -208,6 +231,9 @@ require_once __DIR__ . '/../includes/header.php';
 <div class="filter-form glass-effect" style="padding: var(--card-padding); margin-bottom: 20px;">
     <form method="GET" action="" id="filterForm" style="display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end;">
         <input type="hidden" name="view" value="<?php echo $view_mode; ?>">
+        <!-- A rendezési paramétereket is megtartjuk szűréskor, bár általában új keresésnél resetelődik, itt hagyjuk -->
+        <?php if(isset($_GET['sort'])): ?><input type="hidden" name="sort" value="<?php echo escape($_GET['sort']); ?>"><?php endif; ?>
+        <?php if(isset($_GET['dir'])): ?><input type="hidden" name="dir" value="<?php echo escape($_GET['dir']); ?>"><?php endif; ?>
         
         <div class="form-group" style="flex: 2; min-width: 200px; margin-bottom:0;">
             <label>Keresés (Enter):</label>
@@ -299,23 +325,32 @@ require_once __DIR__ . '/../includes/header.php';
     <!-- LISTA NÉZET -->
     <div class="table-container glass-effect">
         <table>
-            <thead><tr><th>Fájlnév</th><th>Galéria</th><th>Méret</th><th>Feltöltve</th><th>Műveletek</th></tr></thead>
+            <?php
+            // === TABLE HELPER HASZNÁLATA ===
+            $table = new TableHelper($sort, $dir);
+            $table->addColumn('original_filename', 'Fájlnév', true);
+            $table->addColumn('gallery_name', 'Galéria', true);
+            $table->addColumn('file_size', 'Méret', true);
+            $table->addColumn('upload_timestamp', 'Feltöltve', true);
+            $table->addColumn('actions', 'Műveletek', false, '150px');
+            $table->render();
+            ?>
             <tbody>
                 <?php if (empty($userFiles)): ?>
                     <tr><td colspan="5" style="text-align:center;">Nincs találat.</td></tr>
                 <?php else: foreach ($userFiles as $file): ?>
                     <tr>
-                        <td><?php echo escape(mb_strimwidth($file['original_filename'], 0, 40, "...")); ?></td>
-                        <td>
+                        <td data-label="Fájlnév"><?php echo escape(mb_strimwidth($file['original_filename'], 0, 40, "...")); ?></td>
+                        <td data-label="Galéria">
                             <?php if ($file['gallery_name']): ?>
                                 <span class="category-tag"><i class="fas fa-images"></i> <?php echo escape($file['gallery_name']); ?></span>
                             <?php else: ?>
                                 <span class="text-muted">-</span>
                             <?php endif; ?>
                         </td>
-                        <td><?php echo formatBytes($file['file_size']); ?></td>
-                        <td><?php echo formatTimestamp($file['upload_timestamp']); ?></td>
-                        <td>
+                        <td data-label="Méret"><?php echo formatBytes($file['file_size']); ?></td>
+                        <td data-label="Feltöltve"><?php echo formatTimestamp($file['upload_timestamp']); ?></td>
+                        <td data-label="Műveletek">
                             <div class="action-buttons">
                                 <a href="<?php echo BASE_URL . 'View.php?id=' . $file['view_token']; ?>" target="_blank" title="Megtekintés"  class="btn btn-small btn-info"><i class="fas fa-eye"></i></a>
                                 <a href="#" onclick="openSetGalleryModal(<?php echo $file['id']; ?>, <?php echo $file['gallery_id'] ?: 'null'; ?>); return false;" class="btn btn-small btn-secondary"><i class="fas fa-folder"></i></a>
@@ -333,6 +368,7 @@ require_once __DIR__ . '/../includes/header.php';
 <?php if ($totalPages > 1): ?>
 <div class="pagination glass-effect" style="margin-top:20px;">
     <?php
+    // Itt a $queryParamsForPagination a $_GET-ből indul, ami már tartalmazza a sort/dir paramétereket!
     $queryParamsForPagination = $_GET;
     unset($queryParamsForPagination['page']);
     $paginationUrlParams = http_build_query($queryParamsForPagination);

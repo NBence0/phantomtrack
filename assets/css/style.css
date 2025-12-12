@@ -2078,3 +2078,43 @@ div.prism-toolbar .toolbar-item button:hover {
         min-width: 130px;
     }
 }
+
+/* Smart Table Styles */
+.smart-th {
+    position: relative;
+    padding: 12px 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+    white-space: nowrap;
+}
+
+.smart-th.sortable {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.smart-th.sortable:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.th-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 5px;
+}
+
+.sort-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+}
+
+.smart-th.active-asc,
+.smart-th.active-desc {
+    background-color: rgba(var(--accent-primary-rgb), 0.1);
+    color: var(--accent-primary);
+    border-bottom-color: var(--accent-primary);
+}

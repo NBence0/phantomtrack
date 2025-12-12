@@ -1,47 +1,8 @@
 /*
- * Fájlmegosztó Feltöltő Felület Stíluslapja
- * (Eredetileg az index.php-ből kiemelve)
+ * Fájlmegosztó Feltöltő Felület Stíluslapja (Javított - Scoped)
 */
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
 
-body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
-    color: #ffffff;
-    min-height: 100vh;
-    overflow-x: hidden;
-}
-
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px;
-}
-
-.header {
-    text-align: center;
-    margin-bottom: 40px;
-    padding: 20px 0;
-}
-
-.header h1 {
-    font-size: 2.5rem;
-    background: linear-gradient(45deg, #00d4ff, #4ecdc4);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin-bottom: 10px;
-}
-
-.header p {
-    color: #8892b0;
-    font-size: 1.1rem;
-}
-
+/* Csak a feltöltő konténeren belül érvényes stílusok */
 .upload-area {
     background: rgba(255, 255, 255, 0.05);
     border: 2px dashed #4ecdc4;
@@ -52,6 +13,11 @@ body {
     transition: all 0.3s ease;
     position: relative;
     overflow: hidden;
+    color: #ffffff;
+}
+
+.upload-area * {
+    box-sizing: border-box;
 }
 
 .upload-area::before {
@@ -113,7 +79,8 @@ body {
     margin-bottom: 25px;
 }
 
-.btn {
+/* FONTOS: .btn csak az .upload-area alatt! */
+.upload-area .btn {
     background: linear-gradient(45deg, #00d4ff, #4ecdc4);
     color: #0f0f23;
     border: none;
@@ -126,25 +93,27 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 8px;
+    font-size: 1rem; /* Reset */
 }
 
-.btn:hover {
+.upload-area .btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 10px 20px rgba(0, 212, 255, 0.3);
 }
 
-.btn-secondary {
+.upload-area .btn-secondary {
     background: rgba(255, 255, 255, 0.1);
     color: #ffffff;
     border: 1px solid #4ecdc4;
 }
 
-.btn-secondary:hover {
+.upload-area .btn-secondary:hover {
     background: rgba(78, 205, 196, 0.2);
     box-shadow: 0 10px 20px rgba(78, 205, 196, 0.2);
 }
 
-.progress-bar {
+/* Progress bar stílusok (maradhatnak globálisak, vagy scoped) */
+.upload-area .progress-bar {
     width: 100%;
     height: 8px;
     background: rgba(255, 255, 255, 0.1);
@@ -153,7 +122,7 @@ body {
     margin-bottom: 10px;
 }
 
-.progress-fill {
+.upload-area .progress-fill {
     height: 100%;
     background: linear-gradient(45deg, #00d4ff, #4ecdc4);
     width: 0%;
@@ -161,14 +130,15 @@ body {
     border-radius: 4px;
 }
 
-.progress-info {
+.upload-area .progress-info {
     display: flex;
     justify-content: space-between;
     color: #8892b0;
     font-size: 0.9rem;
 }
 
-.voice-controls {
+/* Voice controls */
+.upload-area .voice-controls {
     display: none;
     background: rgba(255, 255, 255, 0.05);
     border-radius: 10px;
@@ -177,7 +147,7 @@ body {
     text-align: center;
 }
 
-.voice-controls.recording {
+.upload-area .voice-controls.recording {
     display: block;
     border: 2px solid #ff4757;
     animation: pulse 1.5s infinite;
@@ -200,28 +170,23 @@ body {
     justify-content: space-between;
     align-items: center;
     transition: opacity 0.5s ease;
+    color: #fff;
 }
 
+/* Reszponzivitás */
 @media (max-width: 768px) {
-    .container {
-        padding: 15px;
-    }
-    
-    .header h1 {
-        font-size: 2rem;
-    }
-    
     .upload-area {
         padding: 40px 20px;
     }
     
-    .upload-buttons {
+    .upload-area .upload-buttons {
         flex-direction: column;
         align-items: center;
     }
     
-    .btn {
-        width: 200px;
+    .upload-area .btn {
+        width: 100%;
+        max-width: 250px;
         justify-content: center;
     }
 }

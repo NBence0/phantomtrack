@@ -37,23 +37,17 @@ $category_id_from_url = isset($_GET['category_id']) ? (int)$_GET['category_id'] 
         </li>
 
         <!-- TRACKEREK (Tokenek + Bekérők) -->
-        <?php 
-            $tracker_pages = ['tokens.php', 'file_requests.php', 'permanent_requests.php', 'token_details.php'];
-            $is_tracker_active = in_array($current_page, $tracker_pages);
-        ?>
-        <li class="<?php if($is_tracker_active) echo 'active '; ?>has-submenu">
-            <a href="#"><i class="fas fa-satellite-dish"></i><span>Trackerek</span></a>
-            <ul class="submenu">
-                <li <?php if ($current_page == 'tokens.php') echo 'class="active"'; ?>>
-                    <a href="<?php echo BASE_URL; ?>tracker/tokens.php">Pixel Követők</a>
-                </li>
-                <li <?php if ($current_page == 'file_requests.php') echo 'class="active"'; ?>>
-                    <a href="<?php echo BASE_URL; ?>tracker/file_requests.php">Egyszeri Bekérők</a>
-                </li>
-                 <li <?php if ($current_page == 'permanent_requests.php') echo 'class="active"'; ?>>
-                    <a href="<?php echo BASE_URL; ?>tracker/permanent_requests.php">Állandó Bekérők</a>
-                </li>
-            </ul>
+        <li <?php if ($current_page == 'tokens.php') echo 'class="active"'; ?>>
+            <a href="<?php echo BASE_URL; ?>tracker/tokens.php">
+                <i class="fas fa-eye"></i><span>Tokenek</span>
+            </a>
+        </li>
+
+        <!-- ÚJ: Fájlbekérők -->
+        <li <?php if ($current_page == 'file_requests.php') echo 'class="active"'; ?>>
+            <a href="<?php echo BASE_URL; ?>tracker/file_requests.php">
+                <i class="fas fa-inbox"></i><span>Fájlbekérők</span>
+            </a>
         </li>
         
         <!-- KATEGÓRIÁK -->

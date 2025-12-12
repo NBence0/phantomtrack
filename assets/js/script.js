@@ -78,7 +78,7 @@ function copyToClipboard(inputElement) {
     inputElement.setSelectionRange(0, 99999);
     try {
         document.execCommand('copy');
-        showDynamicMessage('Pixel URL vágólapra másolva!', 'success');
+        showDynamicMessage('URL vágólapra másolva!', 'success');
     } catch (err) {
         showDynamicMessage('Hiba a másolás során.', 'error');
     }

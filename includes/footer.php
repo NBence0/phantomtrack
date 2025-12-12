@@ -38,5 +38,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/copy-to-clipboard/prism-copy-to-clipboard.min.js"></script>
 
     <script src="<?php echo BASE_URL; ?>assets/js/script.js"></script>
+    <script src="<?php echo BASE_URL; ?>assets/js/smart_table.js"></script>
 </body>
 </html>

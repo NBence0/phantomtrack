@@ -5,6 +5,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/TableHelper.php'; // ÚJ: TableHelper behívása
 
 // Jogosultság ellenőrzése
 requireAdmin();
@@ -12,25 +13,42 @@ requireAdmin();
 $db = getDB();
 $currentUserId = getCurrentUserId();
 
-// === ADATOK LEKÉRDEZÉSE ===
+// === ADATOK LEKÉRDEZÉSE ÉS RENDEZÉS ===
 $pageTitle = "Felhasználók Kezelése";
 
-// Lekérdezés bővítése a social ID-kkal
-$usersStmt = $db->prepare("
+// 1. Rendezési paraméterek feldolgozása
+$allowedSortColumns = ['username', 'email', 'is_admin', 'created_at', 'token_count'];
+$sort = $_GET['sort'] ?? 'created_at';
+$dir = $_GET['dir'] ?? 'desc';
+
+// Biztonsági ellenőrzés
+if (!in_array($sort, $allowedSortColumns)) {
+    $sort = 'created_at';
+}
+if (!in_array($dir, ['asc', 'desc'])) {
+    $dir = 'desc';
+}
+
+// SQL rendezési irány
+$sqlDir = strtoupper($dir); 
+
+// 2. Lekérdezés (Most már a változókkal rendez)
+$sql = "
     SELECT u.id, u.username, u.email, u.is_admin, u.created_at, 
            u.google_id, u.facebook_id, u.github_id, 
            COUNT(t.id) as token_count
     FROM users u
     LEFT JOIN tokens t ON u.id = t.user_id
     GROUP BY u.id
-    ORDER BY u.created_at DESC
-");
+    ORDER BY $sort $sqlDir
+";
+
+$usersStmt = $db->prepare($sql);
 $usersStmt->execute();
 $users = $usersStmt->fetchAll();
 
 
-// === 3. LÉPÉS: HTML MEGJELENÍTÉS KEZDETE ===
-// Csak most, minden logika után hívjuk be a header.php-t!
+// === 3. HTML MEGJELENÍTÉS ===
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
@@ -49,19 +67,26 @@ require_once __DIR__ . '/../includes/header.php';
     <h2><i class="fas fa-list-ul"></i> Regisztrált Felhasználók</h2>
     <div class="table-container">
         <table>
-            <thead>
-                <tr>
-                    <th>Felhasználónév</th>
-                    <th>Email</th>
-                    <th>Fiókok</th> <!-- ÚJ OSZLOP -->
-                    <th>Szerepkör</th>
-                    <th>Regisztrált</th>
-                    <th style="text-align:right;">Műveletek</th>
-                </tr>
-            </thead>
+            <?php
+            // TableHelper inicializálása
+            $table = new TableHelper($sort, $dir);
+
+            // Oszlopok definíciója
+            $table->addColumn('username', 'Felhasználónév', true);
+            $table->addColumn('email', 'Email', true);
+            $table->addColumn('accounts', 'Fiókok', false, '100px'); // Nem rendezhető
+            $table->addColumn('is_admin', 'Szerepkör', true, '100px');
+            $table->addColumn('token_count', 'Tokenek', true, '80px'); // Számított mezőre is rendezhetünk
+            $table->addColumn('created_at', 'Regisztrált', true, '160px');
+            $table->addColumn('actions', 'Műveletek', false, '140px', 'right'); // Jobbra igazítás (ha a TableHelper támogatja, ha nem, a CSS megoldja)
+
+            // Fejléc generálása
+            $table->render();
+            ?>
+            
             <tbody>
                 <?php if (empty($users)): ?>
-                    <tr><td colspan="6" style="text-align: center;">Nincsenek felhasználók.</td></tr>
+                    <tr><td colspan="7" style="text-align: center;">Nincsenek felhasználók.</td></tr>
                 <?php else: foreach ($users as $user): ?>
                 <tr>
                     <td data-label="Felhasználónév">
@@ -71,24 +96,24 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php echo escape($user['email']); ?>
                     </td>
                     
-                    <!-- ÚJ: Social Ikonok Megjelenítése -->
+                    <!-- Social Ikonok -->
                     <td data-label="Fiókok" style="white-space: nowrap;">
                         <?php 
                         $hasSocial = false;
                         if (!empty($user['google_id'])) {
-                            echo '<i class="fab fa-google" style="color:#DB4437; margin-right:8px; font-size:1.1em;" title="Google Fiók csatolva"></i>';
+                            echo '<i class="fab fa-google" style="color:#DB4437; margin-right:8px; font-size:1.1em;" title="Google Fiók"></i>';
                             $hasSocial = true;
                         }
                         if (!empty($user['facebook_id'])) {
-                            echo '<i class="fab fa-facebook" style="color:#4267B2; margin-right:8px; font-size:1.1em;" title="Facebook Fiók csatolva"></i>';
+                            echo '<i class="fab fa-facebook" style="color:#4267B2; margin-right:8px; font-size:1.1em;" title="Facebook Fiók"></i>';
                             $hasSocial = true;
                         }
                         if (!empty($user['github_id'])) {
-                            echo '<i class="fab fa-github" style="color:#ffffff; margin-right:8px; font-size:1.1em;" title="GitHub Fiók csatolva"></i>';
+                            echo '<i class="fab fa-github" style="color:#ffffff; margin-right:8px; font-size:1.1em;" title="GitHub Fiók"></i>';
                             $hasSocial = true;
                         }
                         if (!$hasSocial) {
-                            echo '<span class="text-muted" style="font-size:0.8em;">-</span>';
+                            echo '<span class="text-muted" style="font-size:0.8em; opacity:0.5;">-</span>';
                         }
                         ?>
                     </td>
@@ -101,6 +126,10 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php endif; ?>
                     </td>
                     
+                    <td data-label="Tokenek" style="text-align: center;">
+                        <span class="badge"><?php echo $user['token_count']; ?></span>
+                    </td>
+
                     <td data-label="Regisztrált">
                         <?php echo escape(formatTimestamp($user['created_at'])); ?>
                     </td>
@@ -110,7 +139,9 @@ require_once __DIR__ . '/../includes/header.php';
                             <button onclick="openEditUserModal(<?php echo $user['id']; ?>)" class="btn btn-small btn-secondary" title="Szerkesztés">
                                 <i class="fas fa-edit"></i>
                             </button>
-                            <a href="<?php echo BASE_URL . 'tracker/user_manager.php?id=' . $user['id']; ?>" class="btn btn-small btn-info" title="Erőforrások Kezelése"><i class="fas fa-tools"></i></a>
+                            <!-- Ha van user_manager.php, akkor ez a gomb marad, ha nincs, töröld -->
+                            <a href="<?php echo BASE_URL . 'tracker/user_manager.php?id=' . $user['id']; ?>" class="btn btn-small btn-info" title="Erőforrások"><i class="fas fa-tools"></i></a>
+                            
                             <?php if ($user['id'] != $currentUserId): ?>
                                 <button onclick="openDeleteUserModal(<?php echo $user['id']; ?>, '<?php echo escape($user['username']); ?>', <?php echo $user['token_count']; ?>)" class="btn btn-small btn-danger" title="Törlés">
                                     <i class="fas fa-trash-alt"></i>

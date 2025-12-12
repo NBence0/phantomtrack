@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/TableHelper.php'; // ÚJ: TableHelper behívása
 
 requireLogin();
 
@@ -136,8 +137,28 @@ $categoriesStmt = $db->prepare("SELECT id, name FROM token_categories WHERE user
 $categoriesStmt->execute([':user_id' => $currentUserId]);
 $availableCategories = $categoriesStmt->fetchAll();
 
-// --- SZŰRÉSI ÉS LAPOZÁSI LOGIKA KIEGÉSZÍTÉSE ---
+// --- SZŰRÉSI ÉS RENDEZÉSI LOGIKA ---
 $filterCategoryId = isset($_GET['category_id']) ? (int)$_GET['category_id'] : null;
+
+// ÚJ: Rendezési paraméterek
+$allowedSortColumns = ['name', 'description', 'is_active', 'created_at', 'category_name'];
+$sort = $_GET['sort'] ?? 'created_at';
+$dir = $_GET['dir'] ?? 'desc';
+
+// Biztonsági ellenőrzés és oszlop leképezés
+if (!in_array($sort, $allowedSortColumns)) $sort = 'created_at';
+if (!in_array($dir, ['asc', 'desc'])) $dir = 'desc';
+
+// SQL Oszlopok megfeleltetése (mivel JOIN van)
+switch ($sort) {
+    case 'category_name': $sqlSortColumn = 'tc.name'; break;
+    case 'name': $sqlSortColumn = 't.name'; break;
+    case 'description': $sqlSortColumn = 't.description'; break;
+    case 'is_active': $sqlSortColumn = 't.is_active'; break;
+    case 'created_at': default: $sqlSortColumn = 't.created_at'; break;
+}
+$sqlSortDir = strtoupper($dir);
+// ------------------------------------
 
 // Az SQL feltétel és a paraméterek dinamikus összeállítása
 $sqlWhereParts = ["t.user_id = :user_id"];
@@ -172,10 +193,10 @@ if ($currentPage < 1) $currentPage = 1;
 if ($currentPage > $totalPages) $currentPage = $totalPages;
 $offset = ($currentPage - 1) * $itemsPerPage;
 
-// Végleges lekérdezés lapozással
+// Végleges lekérdezés lapozással és RENDEZÉSSEL
 $sqlQuery = "SELECT 
                 t.id, t.token_value, t.name, t.description, t.is_active, t.created_at, 
-                t.category_id AS token_category_link_id,  -- Ezt használjuk a linkhez, a neve egyedi
+                t.category_id AS token_category_link_id, 
                 tc.name as category_name 
              FROM 
                 tokens t 
@@ -183,7 +204,7 @@ $sqlQuery = "SELECT
                 token_categories tc ON t.category_id = tc.id 
              " . $sqlWhere . " 
              ORDER BY 
-                t.created_at DESC 
+                $sqlSortColumn $sqlSortDir 
              LIMIT :limit OFFSET :offset";
 
 $stmt = $db->prepare($sqlQuery);
@@ -213,16 +234,17 @@ include __DIR__ . '/../includes/tokens_modals.php';
 
 <div class="table-container glass-effect">
     <table>
-        <thead>
-            <tr>
-                <th>Név (Kategória)</th>
-                <th>Pixel URL</th>
-                <th>Leírás</th>
-                <th>Státusz</th>
-                <th>Létrehozva</th>
-                <th style="text-align:right;">Műveletek</th>
-            </tr>
-        </thead>
+        <?php
+        // === TABLE HELPER HASZNÁLATA ===
+        $table = new TableHelper($sort, $dir);
+        $table->addColumn('name', 'Név (Kategória)', true);
+        $table->addColumn('pixel_url', 'Pixel URL', false);
+        $table->addColumn('description', 'Leírás', true);
+        $table->addColumn('is_active', 'Státusz', true);
+        $table->addColumn('created_at', 'Létrehozva', true);
+        $table->addColumn('actions', 'Műveletek', false, '', 'right'); // Ha a TableHelper támogatja az alignmentet, ha nem, a CSS megoldja
+        $table->render();
+        ?>
         <tbody>
             <?php if (empty($tokens)): ?>
                 <tr><td colspan="6" style="text-align:center;">Nincsenek tokenek ebben a nézetben.</td></tr>
@@ -288,17 +310,24 @@ include __DIR__ . '/../includes/tokens_modals.php';
     
     <?php if ($totalPages > 1): ?>
     <div class="pagination glass-effect">
+        <?php
+        // Paraméterek megőrzése (sort, dir, category_id) a lapozásnál
+        $queryParamsForPagination = $_GET;
+        unset($queryParamsForPagination['page']);
+        $paginationUrlParams = http_build_query($queryParamsForPagination);
+        ?>
+
         <?php if ($currentPage > 1): ?>
-            <a href="?page=<?php echo $currentPage - 1; ?>" class="btn btn-secondary btn-small">« Előző</a>
+            <a href="?<?php echo $paginationUrlParams; ?>&page=<?php echo $currentPage - 1; ?>" class="btn btn-secondary btn-small">« Előző</a>
         <?php else: ?>
             <span class="btn btn-secondary btn-small disabled">« Előző</span>
         <?php endif; ?>
+        
         <?php 
-        // Egyszerűsített lapozó linkek generálása (pl. max 5 linket mutatunk)
         $startPage = max(1, $currentPage - 2);
         $endPage = min($totalPages, $currentPage + 2);
         if ($startPage > 1) {
-            echo '<a href="?page=1" class="btn btn-secondary btn-small">1</a>';
+            echo '<a href="?'.$paginationUrlParams.'&page=1" class="btn btn-secondary btn-small">1</a>';
             if ($startPage > 2) {
                 echo '<span class="pagination-dots">...</span>';
             }
@@ -307,19 +336,21 @@ include __DIR__ . '/../includes/tokens_modals.php';
             <?php if ($i == $currentPage): ?>
                 <span class="btn btn-primary btn-small current-page"><?php echo $i; ?></span>
             <?php else: ?>
-                <a href="?page=<?php echo $i; ?>" class="btn btn-secondary btn-small"><?php echo $i; ?></a>
+                <a href="?<?php echo $paginationUrlParams; ?>&page=<?php echo $i; ?>" class="btn btn-secondary btn-small"><?php echo $i; ?></a>
             <?php endif; ?>
         <?php endfor; ?>
+        
         <?php
         if ($endPage < $totalPages) {
             if ($endPage < $totalPages - 1) {
                 echo '<span class="pagination-dots">...</span>';
             }
-            echo '<a href="?page='.$totalPages.'" class="btn btn-secondary btn-small">'.$totalPages.'</a>';
+            echo '<a href="?'.$paginationUrlParams.'&page='.$totalPages.'" class="btn btn-secondary btn-small">'.$totalPages.'</a>';
         }
         ?>
+        
         <?php if ($currentPage < $totalPages): ?>
-            <a href="?page=<?php echo $currentPage + 1; ?>" class="btn btn-secondary btn-small">Következő »</a>
+            <a href="?<?php echo $paginationUrlParams; ?>&page=<?php echo $currentPage + 1; ?>" class="btn btn-secondary btn-small">Következő »</a>
         <?php else: ?>
             <span class="btn btn-secondary btn-small disabled">Következő »</span>
         <?php endif; ?>
@@ -330,7 +361,7 @@ include __DIR__ . '/../includes/tokens_modals.php';
 
 
 <script>
-    const PageConfig = { // <- Átnevezve!
+    const PageConfig = { 
         ajaxUrl: '<?php echo BASE_URL . "tracker/ajax_actions.php"; ?>',
         allUserCategories: <?php echo json_encode($availableCategories); ?>,
         baseUrl: '<?php echo BASE_URL; ?>',
