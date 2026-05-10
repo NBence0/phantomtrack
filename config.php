@@ -1,13 +1,13 @@
 <?php
 require_once __DIR__ . '/vendor/autoload.php'; // Composer autoloader
 // Adatbázis beállítások
-define('DB_HOST', '127.0.0.1');
+define('DB_HOST', 'localhost');
 define('DB_NAME', 'phantomtrack_db');
-define('DB_USER', 'phantomtrack'); // Változtasd meg éles környezetben!
-define('DB_PASS', 'Aa123456');     // Változtasd meg éles környezetben!
+define('DB_USER', 'admin'); // Változtasd meg éles környezetben!
+define('DB_PASS', 'uq8JkZjGRAnW2OwjLk');     // Változtasd meg éles környezetben!
 
 // Alkalmazás URL (fontos a helyes működéshez, / jellel a végén)
-define('BASE_URL', 'http://nbtmp.hu/phantomtrack/'); // Változtasd meg!
+define('BASE_URL', 'https://phantomtrack.nbence.hu/'); // Változtasd meg!
 
 // Alapértelmezett értékek
 define('DEFAULT_ITEMS_PER_PAGE', 10);

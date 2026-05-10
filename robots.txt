@@ -1,0 +1,20 @@
+# === phantomtrack.nbence.hu robots.txt ===
+# PhantomTrack OSINT Analitikai Rendszer
+
+User-agent: *
+Allow: /
+Allow: /tracker/login.php
+Allow: /gallery_view.php
+
+# Privát területek (admin, API, feltöltések)
+Disallow: /tracker/
+Disallow: /api.php
+Disallow: /config.php
+Disallow: /database.sql
+Disallow: /includes/
+Disallow: /uploads/
+Disallow: /temp/
+Disallow: /logs/
+Disallow: /vendor/
+
+Sitemap: https://phantomtrack.nbence.hu/sitemap.php

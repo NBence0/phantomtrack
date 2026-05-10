@@ -37,8 +37,11 @@ if ($token) {
 }
 
 if (!$gallery) {
-    http_response_code(404);
-    die('<body style="background:#0f0f23;color:white;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;"><h1>404 - A galéria nem található.</h1></body>');
+    // Ne használjunk http_response_code(404) mert a globális ErrorDocument
+    // intercept-eli és redirect-el a static/error.php-ra.
+    // Helyette: redirect az általunk kontrollált 404 oldalra.
+    header('Location: ' . BASE_URL . '?error=gallery_not_found');
+    exit;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['logout_gallery'])) {

@@ -1,6 +1,9 @@
 RewriteEngine On
+RewriteBase /phantomtrack/
 
 # Galéria Pretty URL
 # Ha a kérés így néz ki: /gallery/username/slug
 # Átirányítja ide: /gallery_view.php?user=username&slug=slug
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^gallery/([^/]+)/([^/]+)/?$ gallery_view.php?user=$1&slug=$2 [L,QSA]

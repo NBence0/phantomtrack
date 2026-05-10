@@ -176,7 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 Bejelentkezés GitHubbal
             </a>
             <p style="margin-top: 20px;">
-                Nincs még fiókod? <a href="<?php echo BASE_URL; ?>login/register.php" style="color:var(--accent-primary);">Regisztrálj most!</a>
+                Nincs még fiókod? <a href="<?php echo BASE_URL; ?>tracker/register.php" style="color:var(--accent-primary);">Regisztrálj most!</a>
             </p>
         </div>
     </div>
