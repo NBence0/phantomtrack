@@ -93,6 +93,7 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
             </div>
             <div class="gallery-actions">
+                <a href="gallery_analytics.php?id=<?php echo $gallery['id']; ?>" class="btn btn-small" style="background:var(--accent);color:#000;" title="Analitika"><i class="fas fa-chart-pie"></i></a>
                 <button onclick="openShareModal('<?php echo escape($gallery['username']); ?>', '<?php echo escape($gallery['slug']); ?>', '<?php echo $gallery['view_token']; ?>')" class="btn btn-small btn-info" title="Megosztás / Megtekintés"><i class="fas fa-eye"></i></button>
                 <button onclick="openUploadModal(<?php echo $gallery['id']; ?>, '<?php echo escape($gallery['name']); ?>')" class="btn btn-small btn-primary" title="Feltöltés"><i class="fas fa-cloud-upload-alt"></i></button>
                 <button onclick="editGallery(<?php echo $gallery['id']; ?>)" class="btn btn-small btn-secondary" title="Szerkesztés"><i class="fas fa-edit"></i></button>

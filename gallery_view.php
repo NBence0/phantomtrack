@@ -262,9 +262,11 @@ if ($isAuthorized) {
         <img class="lightbox-content" id="lightbox-img">
     </div>
 
+    <script src="<?php echo BASE_URL; ?>assets/js/log.js"></script>
     <script>
         // JS Adatok
-        const galleryId = <?php echo $gallery['id']; ?>;
+        window.galleryId = <?php echo $gallery['id']; ?>;
+        const galleryId = window.galleryId;
         const csrfToken = '<?php echo generateCsrfToken(); ?>';
         const ajaxUrl = '<?php echo BASE_URL; ?>tracker/ajax_actions.php';
         
@@ -286,8 +288,10 @@ if ($isAuthorized) {
             lb.style.display = 'block';
             document.body.style.overflow = 'hidden';
             
-            // Logolás (Kistesó stílus)
-            sendLog('image_view', { index: index, total: images.length });
+            // Logolás (God Mode)
+            if (window.LogSystem) {
+                window.LogSystem.logImageView(images[currentIndex].split('=').pop(), index);
+            }
         }
 
         function closeLightbox() {
@@ -394,29 +398,7 @@ if ($isAuthorized) {
             });
         }
 
-        // Logolás (Beacon)
-        function sendLog(eventType, data) {
-            const formData = new FormData();
-            formData.append('action', 'log_gallery_event');
-            formData.append('gallery_id', galleryId);
-            formData.append('event_type', eventType);
-            formData.append('meta_data', JSON.stringify(data));
-            formData.append('csrf_token', csrfToken);
-            
-            // navigator.sendBeacon megbízhatóbb kilépéskor, de itt fetch is jó
-            fetch(ajaxUrl, { method: 'POST', body: formData });
-        }
-
-        // Page Exit logolás
-        window.addEventListener('beforeunload', function() {
-            // Ezt JSON payloadként küldjük, mert a beacon blob-ot szeret
-            const data = new FormData();
-            data.append('action', 'log_gallery_event');
-            data.append('gallery_id', galleryId);
-            data.append('event_type', 'page_exit');
-            data.append('csrf_token', csrfToken);
-            navigator.sendBeacon(ajaxUrl, data);
-        });
+        // A kistesó logolást felváltotta a LogSystem V6.0 (log.js)
 
     </script>
 <?php endif; ?>
