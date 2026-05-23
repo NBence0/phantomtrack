@@ -1,47 +1,35 @@
 <?php
 // facefinder/editor2.php
 session_start();
-if (!isset($_SESSION['ai_ok'])) {
+require_once dirname(__DIR__) . '/config.php';
+
+if (!isset($_SESSION['user_id'])) {
+    header("Location: ../login.php");
+    exit;
+}
+
+$gallery_id = isset($_GET['gallery_id']) ? (int)$_GET['gallery_id'] : 0;
+if ($gallery_id <= 0) die("Hiányzó gallery_id.");
+$pageTitle = "VisionAI Képek Galéria";
+require_once __DIR__ . '/../includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="hu">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>VisionAI - Képek Login</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="static/css/images.css">
-</head>
-<body>
-    <div class="auth-wrapper">
-      <div class="auth-box">
-        <div class="auth-icon">🧠</div>
-        <div class="auth-title">Editor V2</div>
-        <div class="auth-subtitle">Fejlett Duplikátum Kezelő Rendszer</div>
-        <form id="loginForm" onsubmit="doLogin(event)">
-          <input type="password" id="pw" class="auth-input" placeholder="Admin Jelszó..." autofocus required autocomplete="current-password">
-          <button type="submit" class="btn-login" id="loginBtn">Hitelesítés</button>
-        </form>
-        <div id="loginErr" class="auth-error"></div>
-      </div>
-    </div>
-    <script src="static/js/images.js"></script>
-</body>
-</html>
-<?php 
-    exit; 
-} 
-?>
-<!DOCTYPE html>
-<html lang="hu">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>VisionAI - Képek Galéria</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="static/css/images.css">
-</head>
-<body>
+<script>
+const GALLERY_ID = <?= $gallery_id ?>;
+const originalFetch = window.fetch;
+window.fetch = function() {
+    let [resource, config] = arguments;
+    if (typeof resource === 'string' && resource.includes('api/')) {
+        let sep = resource.includes('?') ? '&' : '?';
+        resource += sep + 'gallery_id=' + GALLERY_ID;
+    }
+    return originalFetch(resource, config);
+};
+</script>
+<style>
+.control-bar { top: 0; }
+.app-container { min-height: calc(100vh - 100px); padding-bottom: 80px; }
+</style>
 
 <div class="app-container">
     
@@ -52,7 +40,7 @@ if (!isset($_SESSION['ai_ok'])) {
             <div class="control-stats" id="pageStats">Betöltés...</div>
         </div>
         <div class="control-bar-right">
-            <a href="index.php" class="header-link">Vezérlőpult →</a>
+            <a href="index.php?gallery_id=<?= $gallery_id ?>" class="btn btn-secondary">Vissza a Dashboardra</a>
         </div>
     </div>
     
@@ -107,5 +95,4 @@ if (!isset($_SESSION['ai_ok'])) {
 </div>
 
 <script src="static/js/images.js"></script>
-</body>
-</html>
+<?php require_once __DIR__ . '/../includes/footer.php'; ?>

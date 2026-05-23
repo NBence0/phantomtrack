@@ -1,22 +1,39 @@
 <?php
 // facefinder/faces.php
 session_start();
+require_once dirname(__DIR__) . '/config.php';
+
+if (!isset($_SESSION['user_id'])) {
+    header("Location: ../login.php");
+    exit;
+}
+
+$gallery_id = isset($_GET['gallery_id']) ? (int)$_GET['gallery_id'] : 0;
+if ($gallery_id <= 0) die("Hiányzó gallery_id.");
+$pageTitle = "VisionAI Szereplők Keresése";
+require_once __DIR__ . '/../includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="hu">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Szereplők — VisionAI Kereső</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="static/css/search.css">
-</head>
-<body>
+<script>
+const GALLERY_ID = <?= $gallery_id ?>;
+const originalFetch = window.fetch;
+window.fetch = function() {
+    let [resource, config] = arguments;
+    if (typeof resource === 'string' && resource.includes('api/')) {
+        let sep = resource.includes('?') ? '&' : '?';
+        resource += sep + 'gallery_id=' + GALLERY_ID;
+    }
+    return originalFetch(resource, config);
+};
+</script>
+<style>
+.topbar { display: none; } /* Hide inner topbar since we have phantomtrack nav */
+.app-container { height: calc(100vh - 100px); }
+</style>
 
 <div class="topbar">
   <div class="topbar-left">
-    <a href="index.php" class="back-btn">← Vezérlőpult</a>
+    <a href="index.php?gallery_id=<?= $gallery_id ?>" class="back-btn">← Vezérlőpult</a>
     <span class="page-title">👥 Szereplők</span>
     <span class="badge" id="personCount">...</span>
   </div>
@@ -94,5 +111,4 @@ session_start();
 </div>
 
 <script src="static/js/search.js"></script>
-</body>
-</html>
+<?php require_once __DIR__ . '/../includes/footer.php'; ?>

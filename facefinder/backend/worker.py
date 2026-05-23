@@ -149,6 +149,7 @@ class BackgroundWorker:
 
                 job_id = job["id"]
                 file_path = job["file_path"]
+                gallery_id = job["gallery_id"]
                 filename = Path(file_path).name
 
                 # Aktuális fájl csíkjának megjelenítése
@@ -156,7 +157,7 @@ class BackgroundWorker:
 
                 try:
                     # Átadjuk a progress objektumokat is
-                    future = loop.run_in_executor(_executor, self.process_file, file_path, self.progress, file_task)
+                    future = loop.run_in_executor(_executor, self.process_file, file_path, gallery_id, self.progress, file_task)
                     success = await asyncio.wait_for(future, timeout=ASYNCIO_TIMEOUT)
 
                     if success:
@@ -192,15 +193,15 @@ class BackgroundWorker:
                         count += 1
         return count
 
-    def process_file(self, file_path: str, progress, file_task) -> bool:
+    def process_file(self, file_path: str, gallery_id: int, progress, file_task) -> bool:
         ext = Path(file_path).suffix.lower()
         if ext in IMAGE_EXTENSIONS:
-            return self._process_image(file_path, progress, file_task)
+            return self._process_image(file_path, gallery_id, progress, file_task)
         elif ext in VIDEO_EXTENSIONS:
-            return self._process_video(file_path, progress, file_task)
+            return self._process_video(file_path, gallery_id, progress, file_task)
         return False
 
-    def _process_image(self, file_path: str, progress, file_task) -> bool:
+    def _process_image(self, file_path: str, gallery_id: int, progress, file_task) -> bool:
         filename = Path(file_path).name
         try:
             img = cv2.imdecode(np.fromfile(file_path, dtype=np.uint8), cv2.IMREAD_COLOR)
@@ -231,7 +232,7 @@ class BackgroundWorker:
         progress.update(file_task, completed=progress.tasks[file_task].total, description=f"[bold green]✔ {filename} kész")
 
         if not faces:
-            self.db.save_faces(file_path, "image", 0.0, [])
+            self.db.save_faces(file_path, "image", 0.0, gallery_id, [])
             self.db.flush()
             console.print(f"[dim white]  └─ {filename}: Nem találtunk arcot.[/dim white]")
             return True
@@ -240,13 +241,13 @@ class BackgroundWorker:
             thumb_data = save_face_thumb(img, face.bbox, file_path, i)
             face._thumb_name = thumb_data 
 
-        self.db.save_faces(file_path, "image", 0.0, faces)
+        self.db.save_faces(file_path, "image", 0.0, gallery_id, faces)
         self.db.flush()
         
         console.print(f"[bold green]📸 {filename} feldolgozva -> [white bg=green] {len(faces)} [/white bg=green] minőségi arc mentve.[/bold green]")
         return True
     
-    def _process_video(self, file_path: str, progress, file_task) -> bool:
+    def _process_video(self, file_path: str, gallery_id: int, progress, file_task) -> bool:
         filename = Path(file_path).name
         start_time = time.time()  # Munkavégzés kezdetének rögzítése
         vr = None
@@ -285,7 +286,7 @@ class BackgroundWorker:
                     thumb_data = save_face_thumb(frame_bgr, face.bbox, file_path + f"@{idx}", i)
                     face._thumb_name = thumb_data
 
-                self.db.save_faces(file_path, "video", timestamp, faces)
+                self.db.save_faces(file_path, "video", timestamp, gallery_id, faces)
                 
                 processed_count += 1
                 progress.update(file_task, completed=processed_count, description=f"[blue]Videó: {filename} [dim](+ {len(faces)} arc)[/dim]")
@@ -307,14 +308,14 @@ class BackgroundWorker:
     def backfill_thumbnails(self, limit: int = 500) -> int:
         """Újragenerálja a hiányzó vagy fájl-alapú thumbnail-eket az eredeti képekből."""
         with self.db.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT face_id, video_path, bbox, timestamp_sec 
-                FROM faces 
-                WHERE face_thumb IS NULL OR face_thumb NOT LIKE 'data:%'
-                LIMIT ?
-            """, (limit,))
-            rows = cur.fetchall()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT face_id, video_path, bbox, timestamp_sec 
+                    FROM ff_faces 
+                    WHERE face_thumb IS NULL OR face_thumb NOT LIKE 'data:%'
+                    LIMIT %s
+                """, (limit,))
+                rows = cur.fetchall()
 
         if not rows:
             return 0
@@ -340,8 +341,12 @@ class BackgroundWorker:
                 if img is not None:
                     thumb_data = save_face_thumb(img, bbox, video_path, face_id)
                     if thumb_data:
+                        import base64
+                        thumb_b64 = "data:image/webp;base64," + base64.b64encode(thumb_data).decode('utf-8')
                         with self.db.get_connection() as conn:
-                            conn.execute("UPDATE faces SET face_thumb = ? WHERE face_id = ?", (thumb_data, face_id))
+                            with conn.cursor() as cur:
+                                cur.execute("UPDATE ff_faces SET face_thumb = %s WHERE face_id = %s", (thumb_b64, face_id))
+                            conn.commit()
                         count += 1
             except Exception:
                 pass

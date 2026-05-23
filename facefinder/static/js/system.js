@@ -23,6 +23,7 @@ function logLine(msg, type = 'res') {
 function getEndpoint(action) {
     if (['start_daemon', 'kill_daemon'].includes(action)) return 'api/daemon.php';
     if (['get_logs'].includes(action)) return 'api/logs.php';
+    if (['scan_gallery'].includes(action)) return 'api/editor_api.php';
     return 'api/maintenance.php';
 }
 

@@ -47,7 +47,25 @@ require_once __DIR__ . '/../includes/header.php';
     .badge-public { background: var(--color-success); }
     .badge-private { background: var(--color-warning); color: #333; }
     .badge-password { background: var(--color-error); }
-    .gallery-actions { display: flex; justify-content: space-between; padding: 10px; border-top: 1px solid var(--glass-border); }
+    .gallery-actions { display: flex; justify-content: space-between; padding: 10px; border-top: 1px solid var(--glass-border); align-items: center; }
+    /* Dropdown CSS */
+    .action-dropdown { position: relative; display: inline-block; }
+    .action-dropdown-content {
+        display: none; position: absolute; right: 0; bottom: 110%;
+        background-color: #2c2c2c; min-width: 200px;
+        box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5); z-index: 100;
+        border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+        overflow: hidden;
+    }
+    .action-dropdown-content button, .action-dropdown-content a {
+        color: #fff; padding: 10px 16px; text-decoration: none;
+        display: flex; align-items: center; width: 100%; text-align: left;
+        background: none; border: none; cursor: pointer; font-size: 0.9em;
+        transition: background 0.2s;
+    }
+    .action-dropdown-content button i, .action-dropdown-content a i { width: 25px; }
+    .action-dropdown-content button:hover, .action-dropdown-content a:hover { background-color: rgba(255,255,255,0.1); }
+    .action-dropdown:hover .action-dropdown-content { display: block; }
 </style>
 
 <div class="content-header">
@@ -93,11 +111,25 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
             </div>
             <div class="gallery-actions">
-                <a href="gallery_analytics.php?id=<?php echo $gallery['id']; ?>" class="btn btn-small" style="background:var(--accent);color:#000;" title="Analitika"><i class="fas fa-chart-pie"></i></a>
-                <button onclick="openShareModal('<?php echo escape($gallery['username']); ?>', '<?php echo escape($gallery['slug']); ?>', '<?php echo $gallery['view_token']; ?>')" class="btn btn-small btn-info" title="Megosztás / Megtekintés"><i class="fas fa-eye"></i></button>
-                <button onclick="openUploadModal(<?php echo $gallery['id']; ?>, '<?php echo escape($gallery['name']); ?>')" class="btn btn-small btn-primary" title="Feltöltés"><i class="fas fa-cloud-upload-alt"></i></button>
-                <button onclick="editGallery(<?php echo $gallery['id']; ?>)" class="btn btn-small btn-secondary" title="Szerkesztés"><i class="fas fa-edit"></i></button>
-                <button onclick="deleteGallery(<?php echo $gallery['id']; ?>, '<?php echo escape($gallery['name']); ?>')" class="btn btn-small btn-danger" title="Törlés"><i class="fas fa-trash-alt"></i></button>
+                <button onclick="openUploadModal(<?php echo $gallery['id']; ?>, '<?php echo escape($gallery['name']); ?>')" class="btn btn-small btn-primary" title="Képek feltöltése a galériába"><i class="fas fa-cloud-upload-alt"></i> Feltöltés</button>
+                <button onclick="openShareModal('<?php echo escape($gallery['username']); ?>', '<?php echo escape($gallery['slug']); ?>', '<?php echo $gallery['view_token']; ?>')" class="btn btn-small btn-info" title="Megosztás / Megtekintés"><i class="fas fa-share-alt"></i> Megosztás</button>
+
+                <div class="action-dropdown">
+                    <button class="btn btn-small btn-secondary"><i class="fas fa-ellipsis-v"></i></button>
+                    <div class="action-dropdown-content">
+                        <a href="../facefinder/search.php?gallery_id=<?php echo $gallery['id']; ?>" style="color:#b873f9;"><i class="fas fa-search"></i> Arc Kereső</a>
+                        <a href="../facefinder/clusters.php?gallery_id=<?php echo $gallery['id']; ?>" style="color:#b873f9;"><i class="fas fa-users"></i> Klaszter Kezelő</a>
+                        <a href="../facefinder/images.php?gallery_id=<?php echo $gallery['id']; ?>" style="color:#b873f9;"><i class="fas fa-images"></i> Nyers Képek</a>
+                        <?php if (isAdmin()): ?>
+                        <a href="../facefinder/system.php?gallery_id=<?php echo $gallery['id']; ?>" style="color:#00d4ff;"><i class="fas fa-cogs"></i> Démon & Rendszer</a>
+                        <?php endif; ?>
+                        <button onclick="scanForAI(<?php echo $gallery['id']; ?>)" style="color:#48d1cc;"><i class="fas fa-robot"></i> Képek AI beolvasása</button>
+                        <hr style="border-color: rgba(255,255,255,0.1); margin: 0;">
+                        <a href="gallery_analytics.php?id=<?php echo $gallery['id']; ?>"><i class="fas fa-chart-pie"></i> Analitika</a>
+                        <button onclick="editGallery(<?php echo $gallery['id']; ?>)"><i class="fas fa-edit"></i> Szerkesztés</button>
+                        <button onclick="deleteGallery(<?php echo $gallery['id']; ?>, '<?php echo escape($gallery['name']); ?>')" style="color:#ff4d4d;"><i class="fas fa-trash-alt"></i> Törlés</button>
+                    </div>
+                </div>
             </div>
         </div>
     <?php endforeach; endif; ?>
@@ -394,6 +426,22 @@ require_once __DIR__ . '/../includes/header.php';
         .then(data => {
             if(data.success) location.reload();
             else showDynamicMessage(data.message, 'error');
+        });
+    }
+
+    function scanForAI(galleryId) {
+        if(!confirm('Szeretnéd beolvasni a galéria képeit a VisionAI rendszerbe? Ez a művelet eltarthat egy ideig, amíg bekerülnek a várakozási sorba.')) return;
+        
+        fetch('<?php echo BASE_URL; ?>facefinder/api/editor_api.php?action=scan_gallery&gallery_id=' + galleryId, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if(data.success) {
+                showDynamicMessage(data.message || 'Beolvasás elindítva!', 'success');
+            } else {
+                showDynamicMessage(data.error || 'Hiba a beolvasáskor.', 'error');
+            }
+        }).catch(() => {
+            showDynamicMessage('Hálózati hiba a VisionAI API elérésekor.', 'error');
         });
     }
 

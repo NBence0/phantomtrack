@@ -1,51 +1,37 @@
 <?php
-// facefinder/editor.php
+// facefinder/clusters.php
 session_start();
-if (isset($_GET['logout'])) { session_destroy(); header('Location: editor.php'); exit; }
-?>
-<!DOCTYPE html>
-<html lang="hu">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VisionAI Klaszterek</title>
-<link rel="stylesheet" href="static/css/clusters.css">
-</head>
-<body>
+require_once dirname(__DIR__) . '/config.php';
 
-<?php if (!isset($_SESSION['ai_ok'])): ?>
-<!-- ════════════════════ AUTH SCREEN ════════════════════ -->
-<div class="auth-wrap">
-  <div class="auth-card">
-    <div class="auth-logo">🧠</div>
-    <h1>VisionAI Editor</h1>
-    <p>Admin belépés szükséges</p>
-    <input type="password" id="authPass" placeholder="Jelszó..." autocomplete="current-password">
-    <button class="btn btn-primary btn-full" id="authBtn" onclick="doLogin()">Belépés</button>
-    <div id="authErr" style="margin-top:10px;color:#ff3366;font-size:0.82rem;min-height:18px;"></div>
-  </div>
-</div>
-<script>
-function doLogin() {
-  const p = document.getElementById('authPass').value;
-  const btn = document.getElementById('authBtn');
-  const err = document.getElementById('authErr');
-  btn.disabled = true; btn.textContent = 'Belépés...';
-  fetch('api/auth.php?action=login', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body: 'password=' + encodeURIComponent(p)
-  }).then(r => r.json()).then(res => {
-    if (res.success) location.reload();
-    else { err.textContent = res.error; btn.disabled = false; btn.textContent = 'Belépés'; }
-  }).catch(() => { err.textContent = 'Hálózati hiba.'; btn.disabled = false; btn.textContent = 'Belépés'; });
+if (!isset($_SESSION['user_id'])) {
+    header("Location: ../login.php");
+    exit;
 }
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('authPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
-});
+
+$gallery_id = isset($_GET['gallery_id']) ? (int)$_GET['gallery_id'] : 0;
+if ($gallery_id <= 0) die("Hiányzó gallery_id.");
+$pageTitle = "VisionAI Klaszterek";
+require_once __DIR__ . '/../includes/header.php';
+?>
+<link rel="stylesheet" href="static/css/clusters.css">
+<script>
+const GALLERY_ID = <?= $gallery_id ?>;
+const originalFetch = window.fetch;
+window.fetch = function() {
+    let [resource, config] = arguments;
+    if (typeof resource === 'string' && resource.includes('api/')) {
+        let sep = resource.includes('?') ? '&' : '?';
+        resource += sep + 'gallery_id=' + GALLERY_ID;
+    }
+    return originalFetch(resource, config);
+};
 </script>
-</body></html>
-<?php exit; endif; ?>
+<style>
+.app-header { display: none; } /* Hide inner topbar since we have phantomtrack nav */
+.app-layout { height: calc(100vh - 100px); }
+</style>
+
+
 
 <!-- ════════════════════ MAIN APP ════════════════════════ -->
 <header class="app-header">
@@ -60,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ↩ Visszavonás <span id="undoCount" style="opacity:.6">(0)</span>
   </button>
   <div class="header-sep"></div>
-  <a href="index.php" class="header-link">Vezérlőpult →</a>
+  <a href="index.php?gallery_id=<?= $gallery_id ?>" class="btn btn-secondary">Vissza a Dashboardra</a>
 </header>
 
 <main class="app-layout" id="appLayout">
@@ -258,5 +244,4 @@ document.addEventListener('DOMContentLoaded', () => {
 <div id="toastContainer"></div>
 
 <script src="static/js/clusters.js"></script>
-</body>
-</html>
+<?php require_once __DIR__ . '/../includes/footer.php'; ?>

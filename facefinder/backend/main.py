@@ -15,19 +15,20 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from typing import Optional
 
-from backend.config import DB_PATH, LOAD_AI_MODELS, validate_config
+from backend.config import LOAD_AI_MODELS, validate_config
 from backend.database import DatabaseManager
 from backend.engine import FaceEngine
 from backend.worker import BackgroundWorker
 
 app = FastAPI(title="VisionAI API")
 
-db_manager = DatabaseManager(DB_PATH)
-engine = FaceEngine()
+db_manager = DatabaseManager()
+engine = FaceEngine(db_manager)
 worker = BackgroundWorker(db_manager, engine)
 
 class FilePathRequest(BaseModel):
     path: str
+    gallery_id: int
 
 @app.on_event("startup")
 async def startup_event():
@@ -51,7 +52,7 @@ async def scan_images(background_tasks: BackgroundTasks):
 async def add_to_queue(req: FilePathRequest):
     if not os.path.exists(req.path):
         raise HTTPException(status_code=400, detail="File does not exist")
-    added = db_manager.add_job(req.path)
+    added = db_manager.add_job(req.path, req.gallery_id)
     if added:
         return {"success": True, "message": "Job added"}
     return {"success": False, "message": "Job already exists in queue"}
@@ -59,10 +60,10 @@ async def add_to_queue(req: FilePathRequest):
 @app.get("/api/queue/status")
 async def queue_status():
     with db_manager.get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT status, count(*) FROM jobs GROUP BY status")
-        counts = {row[0]: row[1] for row in cur.fetchall()}
-        return {"success": True, "status": counts}
+        with conn.cursor() as cur:
+            cur.execute("SELECT status, count(*) as c FROM ff_jobs GROUP BY status")
+            counts = {row['status']: row['c'] for row in cur.fetchall()}
+            return {"success": True, "status": counts}
 
 @app.post("/api/search")
 async def search_face(req: FilePathRequest):
@@ -76,62 +77,62 @@ async def search_face(req: FilePathRequest):
     if img is None:
         raise HTTPException(status_code=400, detail="Could not read image")
 
-    results = engine.search_similar(img)
+    results = engine.search_similar(img, req.gallery_id)
     return {"success": True, "results": results}
 
 @app.get("/api/faces_in_image")
-async def get_faces_in_image(path: str):
+async def get_faces_in_image(path: str, gallery_id: int):
     with db_manager.get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT face_id, bbox, face_thumb, age, gender, det_score,
-                   pitch, yaw, roll, landmarks
-            FROM faces WHERE video_path = ?
-        """, (path,))
-        rows = cur.fetchall()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT face_id, bbox, face_thumb, age, gender, det_score,
+                       pitch, yaw, roll, kps as landmarks
+                FROM ff_faces WHERE video_path = %s AND gallery_id = %s
+            """, (path, gallery_id))
+            rows = cur.fetchall()
 
     result = []
     for row in rows:
         result.append({
-            "face_id": row[0],
-            "bbox": [float(x) for x in row[1].split(',')],
-            "thumb": row[2],
-            "age": row[3],
-            "gender": row[4],
-            "score": row[5],
-            "pose": {"pitch": row[6], "yaw": row[7], "roll": row[8]},
-            "kps": row[9]
+            "face_id": row['face_id'],
+            "bbox": [float(x) for x in row['bbox'].split(',')],
+            "thumb": row['face_thumb'],
+            "age": row['age'],
+            "gender": row['gender'],
+            "score": row['det_score'],
+            "pose": {"pitch": row['pitch'], "yaw": row['yaw'], "roll": row['roll']},
+            "kps": row['landmarks']
         })
     return {"success": True, "faces": result}
 
 @app.post("/api/cluster")
-async def cluster_faces(background_tasks: BackgroundTasks):
-    background_tasks.add_task(engine.cluster_all_faces)
+async def cluster_faces(gallery_id: int, background_tasks: BackgroundTasks):
+    background_tasks.add_task(engine.cluster_all_faces, gallery_id)
     return {"success": True, "msg": "A klaszterezés elindult a háttérben. Kövesd a folyamatot a logban!"}
 
 @app.get("/api/clusters/all")
-async def get_clusters():
+async def get_clusters(gallery_id: int):
     with db_manager.get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT f.cluster_id, f.face_id, f.video_path, f.bbox,
-                   p.name, p.notes, f.face_thumb, f.age, f.gender, f.det_score,
-                   f.pitch, f.yaw, f.roll
-            FROM faces f
-            LEFT JOIN persons p ON f.cluster_id = p.cluster_id
-            WHERE f.cluster_id != -1
-            ORDER BY f.cluster_id
-        """)
-        rows = cur.fetchall()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT f.cluster_id, f.face_id, f.video_path, f.bbox,
+                       p.name, p.notes, f.face_thumb, f.age, f.gender, f.det_score,
+                       f.pitch, f.yaw, f.roll
+                FROM ff_faces f
+                LEFT JOIN ff_persons p ON f.cluster_id = p.cluster_id AND f.gallery_id = p.gallery_id
+                WHERE f.cluster_id != -1 AND f.gallery_id = %s
+                ORDER BY f.cluster_id
+            """, (gallery_id,))
+            rows = cur.fetchall()
 
     clusters = {}
     for row in rows:
-        cid = row[0]
+        cid = row['cluster_id']
         if cid not in clusters:
             clusters[cid] = {
                 "cluster_id": cid,
-                "name": row[4],
-                "notes": row[5],
+                "name": row['name'],
+                "notes": row['notes'],
                 "count": 0,
                 "faces": []
             }
@@ -139,26 +140,20 @@ async def get_clusters():
         clusters[cid]["count"] += 1
         if len(clusters[cid]["faces"]) < 5:
             clusters[cid]["faces"].append({
-                "face_id": row[1],
-                "path": row[2],
-                "bbox": [float(x) for x in row[3].split(',')],
-                "thumb": row[6],
-                "age": row[7],
-                "gender": row[8],
-                "score": row[9]
+                "face_id": row['face_id'],
+                "path": row['video_path'],
+                "bbox": [float(x) for x in row['bbox'].split(',')],
+                "thumb": row['face_thumb'],
+                "age": row['age'],
+                "gender": row['gender'],
+                "score": row['det_score']
             })
             
     return {"success": True, "clusters": list(clusters.values())}
 
 @app.post("/api/persons/rename")
-async def rename_person(cluster_id: int, name: str, notes: Optional[str] = None):
-    with db_manager.get_connection() as conn:
-        conn.execute("""
-            INSERT INTO persons (cluster_id, name, notes)
-            VALUES (?, ?, ?)
-            ON CONFLICT(cluster_id) DO UPDATE SET name=excluded.name, notes=excluded.notes
-        """, (cluster_id, name, notes))
-        conn.commit()
+async def rename_person(gallery_id: int, cluster_id: int, name: str, notes: Optional[str] = None):
+    db_manager.rename_person(gallery_id, cluster_id, name, notes)
     return {"success": True}
 
 @app.post("/api/maintenance/backfill_thumbs")
@@ -167,12 +162,9 @@ async def backfill_thumbs(background_tasks: BackgroundTasks):
     return {"success": True, "message": "Backfill task started"}
 
 @app.get("/api/persons")
-async def get_persons():
-    with db_manager.get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT cluster_id, name, notes FROM persons")
-        rows = cur.fetchall()
-        return {"success": True, "persons": [{"cluster_id": r[0], "name": r[1], "notes": r[2]} for r in rows]}
+async def get_persons(gallery_id: int):
+    persons = db_manager.get_all_persons(gallery_id)
+    return {"success": True, "persons": [{"cluster_id": r['cluster_id'], "name": r['name'], "notes": r['notes']} for r in persons]}
 
 @app.post("/api/maintenance/fix_paths")
 async def fix_paths_endpoint():

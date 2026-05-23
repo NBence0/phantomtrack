@@ -1,173 +1,119 @@
-import sqlite3
+import pymysql
+from pymysql.constants import CLIENT
 import threading
 import logging
 import numpy as np
 import os
+import re
 from contextlib import contextmanager
-
 
 logger = logging.getLogger(__name__)
 
 class DatabaseManager:
-    def __init__(self, db_path: str, vector_dim: int = 512, commit_every: int = 100):
-        self.db_path = db_path
-        self.vector_dim = vector_dim
+    def __init__(self, commit_every: int = 100, db_path=None): # db_path ignored now
         self.commit_every = commit_every
         self.lock = threading.Lock()
-        self._pending_rows =[]
-
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        self._pending_rows = []
+        self.db_config = self._parse_php_config('/var/www/nbence.hu/phantomtrack/config.php')
         self._init_db()
 
-    def _init_db(self):
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA mmap_size = 104857600;")
-            conn.execute("PRAGMA cache_size = -102400;") 
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS faces (
-                    face_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    video_path TEXT,
-                    media_type TEXT DEFAULT 'video',
-                    timestamp_sec REAL,
-                    bbox TEXT,
-                    cluster_id INTEGER DEFAULT -1,
-                    face_thumb TEXT DEFAULT NULL,
-                    age INTEGER,
-                    gender TEXT,
-                    det_score REAL,
-                    quality_score REAL,
-                    emb_antelope BLOB,
-                    emb_adaface BLOB,
-                    emb_vit BLOB
-                )
-            """)
-
-            try:
-                conn.execute("ALTER TABLE faces ADD COLUMN face_thumb TEXT DEFAULT NULL")
-            except sqlite3.OperationalError:
-                pass
-
-            missing_cols =[
-                ("face_emb_idx", "INTEGER"),
-                ("age", "INTEGER"),
-                ("gender", "TEXT"),
-                ("det_score", "REAL"),
-                ("pitch", "REAL"),
-                ("yaw", "REAL"),
-                ("roll", "REAL"),
-                ("kps", "TEXT")
-            ]
-            for col, dtype in missing_cols:
-                try:
-                    conn.execute(f"ALTER TABLE faces ADD COLUMN {col} {dtype} DEFAULT NULL")
-                except sqlite3.OperationalError:
-                    pass
-
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_faces_cluster ON faces(cluster_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_faces_video ON faces(video_path)")
-            
-            new_cols = [
-                ("quality_score", "REAL"),
-                ("emb_antelope", "BLOB"),
-                ("emb_adaface", "BLOB")
-            ]
-            for col, dtype in new_cols:
-                try:
-                    conn.execute(f"ALTER TABLE faces ADD COLUMN {col} {dtype} DEFAULT NULL")
-                except sqlite3.OperationalError:
-                    pass
-
-            conn.execute("""
-                UPDATE faces
-                SET face_emb_idx = (face_id - 1)
-                WHERE face_emb_idx IS NULL
-            """)
-
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS jobs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    file_path TEXT UNIQUE,
-                    status TEXT DEFAULT 'pending',
-                    retry_count INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            # Fejlesztés #4: retry_count oszlop migrálása meglévő adatbázishoz
-            try:
-                conn.execute("ALTER TABLE jobs ADD COLUMN retry_count INTEGER DEFAULT 0")
-            except sqlite3.OperationalError:
-                pass
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS persons (
-                    cluster_id INTEGER PRIMARY KEY,
-                    name TEXT DEFAULT NULL,
-                    notes TEXT DEFAULT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
+    def _parse_php_config(self, filepath):
+        config = {'host': 'localhost', 'user': 'root', 'password': '', 'database': 'phantomtrack_db'}
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            host_m = re.search(r"define\('DB_HOST',\s*'([^']+)'\);", content)
+            if host_m: config['host'] = host_m.group(1)
+            name_m = re.search(r"define\('DB_NAME',\s*'([^']+)'\);", content)
+            if name_m: config['database'] = name_m.group(1)
+            user_m = re.search(r"define\('DB_USER',\s*'([^']+)'\);", content)
+            if user_m: config['user'] = user_m.group(1)
+            pass_m = re.search(r"define\('DB_PASS',\s*'([^']+)'\);", content)
+            if pass_m: config['password'] = pass_m.group(1)
+        except Exception as e:
+            logger.error(f"Failed to parse config: {e}")
+        return config
 
     @contextmanager
     def get_connection(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        conn = pymysql.connect(
+            host=self.db_config['host'],
+            user=self.db_config['user'],
+            password=self.db_config['password'],
+            database=self.db_config['database'],
+            cursorclass=pymysql.cursors.DictCursor,
+            client_flag=CLIENT.MULTI_STATEMENTS
+        )
         try:
             yield conn
         finally:
             conn.close()
 
-    def add_job(self, file_path: str):
+    def _init_db(self):
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            
+    def add_job(self, file_path: str, gallery_id: int):
         with self.get_connection() as conn:
             try:
-                conn.execute("INSERT INTO jobs (file_path) VALUES (?)", (file_path,))
+                with conn.cursor() as cur:
+                    cur.execute("INSERT INTO ff_jobs (file_path, gallery_id) VALUES (%s, %s)", (file_path, gallery_id))
                 conn.commit()
                 return True
-            except sqlite3.IntegrityError:
+            except pymysql.err.IntegrityError:
                 return False
 
     def get_pending_job(self):
         with self.get_connection() as conn:
-            cur = conn.cursor()
-            # Fejlesztés #4: failed jobokat is újrafuttatjuk ha retry_count < MAX_RETRY_COUNT
-            cur.execute("""
-                SELECT id, file_path FROM jobs
-                WHERE status = 'pending'
-                   OR (status = 'failed' AND retry_count < 3)
-                ORDER BY status DESC, created_at ASC
-                LIMIT 1
-            """)
-            row = cur.fetchone()
-            if row:
-                conn.execute("UPDATE jobs SET status = 'processing' WHERE id = ?", (row[0],))
-                conn.commit()
-                return {"id": row[0], "file_path": row[1]}
+            with conn.cursor() as cur:
+                # FOR UPDATE SKIP LOCKED not strictly needed if only one worker thread per db, but good practice
+                cur.execute("""
+                    SELECT id, file_path, gallery_id FROM ff_jobs
+                    WHERE status = 'pending'
+                       OR (status = 'failed' AND retry_count < 3)
+                    ORDER BY status DESC, created_at ASC
+                    LIMIT 1
+                    FOR UPDATE SKIP LOCKED
+                """)
+                row = cur.fetchone()
+                if row:
+                    cur.execute("UPDATE ff_jobs SET status = 'processing' WHERE id = %s", (row['id'],))
+                    conn.commit()
+                    return row
             return None
 
     def mark_job_done(self, job_id: int):
         with self.get_connection() as conn:
-            conn.execute("UPDATE jobs SET status = 'done' WHERE id = ?", (job_id,))
+            with conn.cursor() as cur:
+                cur.execute("UPDATE ff_jobs SET status = 'done' WHERE id = %s", (job_id,))
             conn.commit()
 
     def mark_job_failed(self, job_id: int):
         with self.get_connection() as conn:
-            # Fejlesztés #4: retry_count növelése; ha eléri a max-ot, véglegesen failed marad
-            conn.execute("""
-                UPDATE jobs
-                SET retry_count = retry_count + 1,
-                    status = CASE WHEN retry_count + 1 >= 3 THEN 'failed' ELSE 'pending' END
-                WHERE id = ?
-            """, (job_id,))
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE ff_jobs
+                    SET retry_count = retry_count + 1,
+                        status = CASE WHEN retry_count + 1 >= 3 THEN 'failed' ELSE 'pending' END
+                    WHERE id = %s
+                """, (job_id,))
             conn.commit()
 
-    def save_faces(self, video_path: str, media_type: str, timestamp: float, faces):
+    def save_faces(self, video_path: str, media_type: str, timestamp: float, gallery_id: int, faces):
         if not faces:
             return
         with self.lock:
             for face in faces:
                 bbox_str = ",".join(map(str, face.bbox.astype(int)))
-                thumb = getattr(face, '_thumb_name', None) or ''
+                
+                thumb_bytes = getattr(face, '_thumb_name', b'')
+                if thumb_bytes:
+                    import base64
+                    thumb_b64 = "data:image/webp;base64," + base64.b64encode(thumb_bytes).decode('utf-8')
+                else:
+                    thumb_b64 = None
+
                 age = int(getattr(face, 'age', 0) or 0)
                 gender = getattr(face, 'sex', getattr(face, 'gender', '')) or ''
                 score = float(getattr(face, 'det_score', 0) or 0)
@@ -182,9 +128,9 @@ class DatabaseManager:
                 emb_vit = getattr(face, 'vit_embedding', np.zeros(512)).astype(np.float32).tobytes()
                 
                 self._pending_rows.append((
-                    video_path, media_type, timestamp, bbox_str, thumb, 
+                    gallery_id, video_path, media_type, timestamp, bbox_str, thumb_b64, 
                     age, gender, score, pitch, yaw, roll, kps,
-                    quality, sqlite3.Binary(emb_antelope), sqlite3.Binary(emb_adaface), sqlite3.Binary(emb_vit)
+                    quality, emb_antelope, emb_adaface, emb_vit
                 ))
 
             if len(self._pending_rows) >= self.commit_every:
@@ -198,38 +144,39 @@ class DatabaseManager:
         if not self._pending_rows:
             return
 
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.executemany(
-                "INSERT INTO faces (video_path, media_type, timestamp_sec, bbox, face_thumb, age, gender, det_score, pitch, yaw, roll, kps, quality_score, emb_antelope, emb_adaface, emb_vit) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                self._pending_rows
-            )
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    "INSERT INTO ff_faces (gallery_id, video_path, media_type, timestamp_sec, bbox, face_thumb, age, gender, det_score, pitch, yaw, roll, kps, quality_score, emb_antelope, emb_adaface, emb_vit) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    self._pending_rows
+                )
             conn.commit()
 
-        self._pending_rows =[]
+        self._pending_rows = []
 
-    def rename_person(self, cluster_id: int, name: str, notes: str = None):
+    def rename_person(self, gallery_id: int, cluster_id: int, name: str, notes: str = None):
         with self.get_connection() as conn:
-            conn.execute("""
-                INSERT INTO persons (cluster_id, name, notes, updated_at)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(cluster_id) DO UPDATE SET
-                    name = excluded.name,
-                    notes = excluded.notes,
-                    updated_at = CURRENT_TIMESTAMP
-            """, (cluster_id, name, notes))
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO ff_persons (cluster_id, gallery_id, name, notes, updated_at)
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE
+                        name = VALUES(name),
+                        notes = VALUES(notes),
+                        updated_at = CURRENT_TIMESTAMP
+                """, (cluster_id, gallery_id, name, notes))
             conn.commit()
 
-    def get_all_persons(self):
+    def get_all_persons(self, gallery_id: int):
         with self.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT cluster_id, name, notes, updated_at FROM persons ORDER BY cluster_id")
-            return [dict(row) for row in cur.fetchall()]
+            with conn.cursor() as cur:
+                cur.execute("SELECT cluster_id, name, notes, updated_at FROM ff_persons WHERE gallery_id = %s ORDER BY cluster_id", (gallery_id,))
+                return cur.fetchall()
 
     def get_pending_job_count(self) -> int:
         with self.get_connection() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT count(*) FROM jobs WHERE status = 'pending'")
-            row = cur.fetchone()
-            return row[0] if row else 0
+            with conn.cursor() as cur:
+                cur.execute("SELECT count(*) as c FROM ff_jobs WHERE status = 'pending'")
+                row = cur.fetchone()
+                return row['c'] if row else 0

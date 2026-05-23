@@ -45,13 +45,13 @@ from insightface.app.common import Face
 
 class FaceIndexManager:
     """Objektumorientált wrapper a FAISS indexeléshez és kereséshez (Memóriabarát klaszterezés)."""
-    def __init__(self, db_path, antelope_w, adaface_w, vit_w):
-        self.db_path = db_path
+    def __init__(self, db_manager, antelope_w, adaface_w, vit_w):
+        self.db_manager = db_manager
         self.weights = (np.sqrt(antelope_w), np.sqrt(adaface_w), np.sqrt(vit_w))
         # 3 darab 512 dimenziós vektor összefűzve
         self.index = faiss.IndexFlatIP(512 * 3)
         self.face_metadata = []
-        self._is_loaded = False
+        self._loaded_gallery_id = None
         self.lock = threading.Lock()
 
     def _get_fused_vector(self, ant, ada, vit):
@@ -67,22 +67,22 @@ class FaceIndexManager:
             v = np.concatenate([ant * w_ant, ada * w_ada, vit * w_vit], axis=-1)
             return v.astype(np.float32)
 
-    def load_data_if_needed(self, force_reload=False):
+    def load_data_if_needed(self, gallery_id, force_reload=False):
         """Kereséshez és klaszterezéshez betölti és RAM-ban tartja az indexet (DB túlterhelés elkerülése)."""
         with self.lock:
-            if self._is_loaded and not force_reload:
+            if self._loaded_gallery_id == gallery_id and not force_reload:
                 return
             
             self.index.reset()
             self.face_metadata = []
             
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cur = conn.cursor()
-                cur.execute("SELECT face_id, video_path, media_type, timestamp_sec, bbox, emb_antelope, emb_adaface, emb_vit FROM faces WHERE emb_antelope IS NOT NULL")
-                rows = cur.fetchall()
+            with self.db_manager.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT face_id, video_path, media_type, timestamp_sec, bbox, emb_antelope, emb_adaface, emb_vit FROM ff_faces WHERE gallery_id = %s AND emb_antelope IS NOT NULL", (gallery_id,))
+                    rows = cur.fetchall()
 
             if not rows:
+                self._loaded_gallery_id = gallery_id
                 return
 
             vectors = []
@@ -91,14 +91,14 @@ class FaceIndexManager:
                 ada = np.frombuffer(row['emb_adaface'], dtype=np.float32)
                 vit = np.frombuffer(row['emb_vit'], dtype=np.float32)
                 vectors.append(self._get_fused_vector(ant, ada, vit))
-                self.face_metadata.append(dict(row))
+                self.face_metadata.append(row)
 
             if vectors:
                 self.index.add(np.array(vectors))
-            self._is_loaded = True
+            self._loaded_gallery_id = gallery_id
 
-    def search_similar(self, query_face, threshold, max_results=15):
-        self.load_data_if_needed()
+    def search_similar(self, query_face, gallery_id, threshold, max_results=15):
+        self.load_data_if_needed(gallery_id)
         if not self.face_metadata:
             return []
 
@@ -122,8 +122,8 @@ class FaceIndexManager:
                 })
         return results
 
-    def cluster_dbscan(self, eps, min_samples):
-        self.load_data_if_needed(force_reload=True)
+    def cluster_dbscan(self, gallery_id, eps, min_samples):
+        self.load_data_if_needed(gallery_id, force_reload=True)
         if len(self.face_metadata) < 2: return 0
 
         # Mátrix helyett Range Search használata (N^2 RAM szörnyeteg kilövése)
@@ -146,9 +146,10 @@ class FaceIndexManager:
         clustering = DBSCAN(eps=eps, min_samples=min_samples, metric='precomputed').fit(sparse_dist)
         
         ids = [row['face_id'] for row in self.face_metadata]
-        with sqlite3.connect(self.db_path) as conn:
-            conn.executemany("UPDATE faces SET cluster_id = ? WHERE face_id = ?", 
-                             [(int(label), f_id) for f_id, label in zip(ids, clustering.labels_)])
+        with self.db_manager.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany("UPDATE ff_faces SET cluster_id = %s WHERE face_id = %s", 
+                                [(int(label), f_id) for f_id, label in zip(ids, clustering.labels_)])
             conn.commit()
             
         return len(set(clustering.labels_) - {-1})
@@ -157,14 +158,14 @@ class FaceIndexManager:
 class FaceEngine:
     _instance = None
 
-    def __new__(cls):
+    def __new__(cls, db_manager=None):
         if cls._instance is None:
             cls._instance = super(FaceEngine, cls).__new__(cls)
             cls._instance._initialized = False
             cls._instance._lock = threading.Lock()
             # ÚJ: Index Manager bekötése a Singletonba
             cls._instance.index_manager = FaceIndexManager(
-                DB_PATH, WEIGHT_ANTELOPE, WEIGHT_ADAFACE, WEIGHT_VIT
+                db_manager, WEIGHT_ANTELOPE, WEIGHT_ADAFACE, WEIGHT_VIT
             )
         return cls._instance
 
@@ -561,10 +562,10 @@ class FaceEngine:
                     
         return True, ""
 
-    def search_similar(self, query_face, max_results: int = 15):
+    def search_similar(self, query_face, gallery_id: int, max_results: int = 15):
         # ÚJ: Keresés átirányítása a RAM-ba gyorsítottt objektumra
-        return self.index_manager.search_similar(query_face, SIMILARITY_THRESHOLD, max_results)
+        return self.index_manager.search_similar(query_face, gallery_id, SIMILARITY_THRESHOLD, max_results)
 
-    def cluster_all_faces(self):
+    def cluster_all_faces(self, gallery_id: int):
         # ÚJ: Klaszterezés átirányítása
-        return self.index_manager.cluster_dbscan(DBSCAN_EPS, DBSCAN_MIN_SAMPLES)
+        return self.index_manager.cluster_dbscan(gallery_id, DBSCAN_EPS, DBSCAN_MIN_SAMPLES)
