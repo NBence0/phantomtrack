@@ -1,0 +1,26 @@
+# --- Core API & Web Server ---
+fastapi
+uvicorn
+pydantic
+python-multipart
+
+# --- Computer Vision & AI ---
+insightface
+opencv-python
+numpy
+decord
+Pillow
+
+# --- Machine Learning & Clustering ---
+scikit-learn
+scipy
+
+# --- ONNX Runtime (InsightFace backend) ---
+# Használj onnxruntime-gpu-t NVIDIA kártyához, onnxruntime-ot CPU-hoz.
+onnxruntime-gpu
+# onnxruntime
+
+# --- FAISS (Gyors vektoros keresés) ---
+# faiss-gpu NVIDIA kártyához, faiss-cpu CPU-hoz.
+faiss-gpu
+# faiss-cpu

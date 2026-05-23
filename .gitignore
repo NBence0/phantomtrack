@@ -4,3 +4,8 @@ config.php
 /temp/
 /logs/
 /vendor/
+pylib
+data
+models
+__pycache__
+fastapi.log

@@ -1,0 +1,29 @@
+# ========================================================
+# VisionAI Facefinder Biztonsági Szabályok
+# ========================================================
+
+# Letiltjuk a hozzáférést a belső adatbázisokhoz, logokhoz, 
+# python scriptekhez és az AI modellekhez (.onnx)
+<FilesMatch "\.(db|sqlite|sql|log|py|sh|md|env|lock|onnx|yaml|yml|json)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Az .htaccess fájl olvasásának blokkolása
+<Files .htaccess>
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</Files>
+
+# Opcionális: Ha Apache-t használsz, kikapcsoljuk a mappák listázását
+Options -Indexes
