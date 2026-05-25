@@ -119,8 +119,32 @@ if ($isAuthorized) {
     $cmtStmt->execute([':gid' => $gallery['id']]);
     $comments = $cmtStmt->fetchAll();
     
+    // Arcok betöltése
+    $facesStmt = $db->prepare("SELECT face_id, bbox, cluster_id, video_path FROM ff_faces WHERE gallery_id = :gid");
+    $facesStmt->execute([':gid' => $gallery['id']]);
+    $allFaces = $facesStmt->fetchAll(PDO::FETCH_ASSOC);
+    $facesByFile = [];
+    foreach ($allFaces as $f) {
+        $stored = basename(str_replace('\\', '/', $f['video_path']));
+        $bbox = $f['bbox'] ? array_map('floatval', explode(',', $f['bbox'])) : [];
+        $facesByFile[$stored][] = [
+            'face_id' => $f['face_id'],
+            'bbox' => $bbox,
+            'cluster_id' => $f['cluster_id']
+        ];
+    }
+    
     // Logolás (Nagytesó stílusban)
     logActivity('gallery_view', null, null); // Itt a gallery_id-t még bele kell hackelni a log függvénybe ha nagyon precízek akarunk lenni, de most elég az activity.
+}
+
+function renderComment($text) {
+    $text = htmlspecialchars($text);
+    return preg_replace_callback('/\[image:([a-zA-Z0-9_-]+)\]/', function($m) {
+        $token = $m[1];
+        $thumb = BASE_URL . 'thumbnails/' . $token . '.webp';
+        return '<div style="margin-top:10px;"><img src="'.$thumb.'" style="max-height:150px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); cursor:pointer;" onclick="openLightboxByToken(\''.$token.'\')"></div>';
+    }, nl2br($text));
 }
 
 ?>
@@ -176,11 +200,13 @@ if ($isAuthorized) {
             <!-- Admin Upload Gomb (Csak ha a tulaj nézi) -->
             <?php if ($user && ($user['id'] == $gallery['user_id'] || isAdmin())): ?>
                 <div style="margin-top: 20px;">
-                    <a href="<?php echo BASE_URL; ?>tracker/galleries.php" class="btn-submit" style="text-decoration:none; font-size:0.9em;">
+                    <a href="<?php echo BASE_URL; ?>tracker/galleries.php" class="btn-submit" style="text-decoration:none; font-size:0.9em; margin-right:10px;">
                         <i class="fas fa-cog"></i> Kezelés / Feltöltés
                     </a>
                 </div>
             <?php endif; ?>
+
+            <!-- AI Gombok innen eltávolítva a kérésnek megfelelően -->
 
             <!-- KILÉPÉS GOMB (Jelszavas galériáknál) -->
             <?php if ($gallery['visibility'] === 'password' && isset($_SESSION['gallery_auth_' . $gallery['id']])): ?>
@@ -194,6 +220,12 @@ if ($isAuthorized) {
 
         </div>
 
+        <!-- Arc kiemelő panel (alul fix) -->
+        <div id="faceHighlightPanel" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#0f0f1a; border:1px solid #00e5ff; border-radius:12px; padding:14px 20px; z-index:500; color:#fff; font-size:.88rem; max-width:90vw; text-align:center; box-shadow:0 8px 30px rgba(0,229,255,.25); white-space:nowrap;">
+            <span id="faceHighlightText"></span>
+            <button onclick="clearClusterFilter()" style="margin-left:14px; background:#ff3366; color:#fff; border:none; border-radius:6px; padding:5px 12px; cursor:pointer; font-weight:bold;">&#10005; Szűrő törlése</button>
+        </div>
+
         <!-- Képrács -->
         <?php if (empty($images)): ?>
             <div style="text-align:center; padding:50px; color:#666;">
@@ -201,13 +233,27 @@ if ($isAuthorized) {
                 <p>Még nincsenek feltöltött képek.</p>
             </div>
         <?php else: ?>
-            <div class="thumbnails">
+            <div class="thumbnails" id="thumbnailGrid">
                 <?php foreach ($images as $index => $img): 
                     $thumbUrl = BASE_URL . 'thumbnails/' . $img['view_token'] . '.webp';
-                    $fullUrl = BASE_URL . 'data.php?id=' . $img['view_token'] . '&type=raw'; // Biztonságos proxy
+                    $fullUrl = BASE_URL . 'data.php?id=' . $img['view_token'] . '&type=raw';
+                    
+                    $fileName = $img['original_name'] ?? $img['file_path'] ?? '';
+                    $isVideo = preg_match('/\.(mp4|webm|ogg|mov|avi|mkv)$/i', $fileName);
+                    
+                    $stored = $img['stored_filename'] ?? basename($img['file_path'] ?? '');
+                    $imgClusters = array_unique(array_column($facesByFile[$stored] ?? [], 'cluster_id'));
+                    $clustersAttr = implode(',', $imgClusters);
                 ?>
-                    <div class="thumb-item" onclick="openLightbox(<?php echo $index; ?>)">
-                        <img src="<?php echo $thumbUrl; ?>" loading="lazy" alt="Kép">
+                    <div class="thumb-item" style="position:relative;" data-index="<?php echo $index; ?>" data-clusters="<?php echo htmlspecialchars($clustersAttr); ?>">
+                        <img src="<?php echo $thumbUrl; ?>" loading="lazy" alt="Kép" onclick="openLightbox(<?php echo $index; ?>)">
+                        <?php if ($isVideo): ?>
+                            <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:white; font-size:2em; pointer-events:none; opacity:0.8; text-shadow:0 2px 5px rgba(0,0,0,0.5);"><i class="fas fa-play-circle"></i></div>
+                        <?php endif; ?>
+                        
+                        <?php if ($user): ?>
+                        <button class="tag-btn" onclick="insertImageTag('<?php echo $img['view_token']; ?>')" title="Kép beillesztése a kommentbe" style="position:absolute; bottom:5px; right:5px; background:rgba(0,0,0,0.6); color:white; border:none; border-radius:4px; padding:3px 6px; cursor:pointer; font-size:12px; z-index:2;">🏷️ Tag</button>
+                        <?php endif; ?>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -246,7 +292,7 @@ if ($isAuthorized) {
                                 </button>
                             <?php endif; ?>
                         </div>
-                        <div class="post-message"><?php echo nl2br(escape($cmt['message'])); ?></div>
+                        <div class="post-message"><?php echo renderComment($cmt['message']); ?></div>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -255,11 +301,16 @@ if ($isAuthorized) {
     </div>
 
     <!-- Lightbox Modal -->
-    <div id="lightbox" class="lightbox">
+    <div id="lightbox" class="lightbox" onclick="if(event.target===this||event.target.id==='lightbox')closeLightbox()">
         <span class="close" onclick="closeLightbox()">&times;</span>
-        <span class="nav-arrow nav-left" onclick="changeImage(-1)">&#10094;</span>
-        <span class="nav-arrow nav-right" onclick="changeImage(1)">&#10095;</span>
-        <img class="lightbox-content" id="lightbox-img">
+        <span class="nav-arrow nav-left" onclick="event.stopPropagation();changeImage(-1)">&#10094;</span>
+        <span class="nav-arrow nav-right" onclick="event.stopPropagation();changeImage(1)">&#10095;</span>
+        <div id="lbWrapper" style="position:relative; max-width:90vw; max-height:85vh;">
+            <img class="lightbox-content" id="lightbox-img" style="display:none; max-width:90vw; max-height:85vh;">
+            <video class="lightbox-content" id="lightbox-vid" controls style="display:none; max-width:90vw; max-height:85vh;"></video>
+            <!-- pointer-events:none a kontenéren, de a gyerekek (bbox div-ek) auto-t kapnak -->
+            <div id="lbBboxContainer" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; overflow:visible;"></div>
+        </div>
     </div>
 
     <script src="<?php echo BASE_URL; ?>assets/js/log.js"></script>
@@ -272,38 +323,214 @@ if ($isAuthorized) {
         
         // Kép lista a lightboxhoz
         const images = [
-            <?php foreach ($images as $img): ?>
-                "<?php echo BASE_URL . 'data.php?id=' . $img['view_token'] . '&type=raw'; ?>",
+            <?php foreach ($images as $img): 
+                $fileName = $img['original_name'] ?? $img['file_path'] ?? '';
+                $isVideo = preg_match('/\.(mp4|webm|ogg|mov|avi|mkv)$/i', $fileName) ? 'true' : 'false';
+                $stored = $img['stored_filename'] ?? basename($img['file_path'] ?? '');
+                $facesJson = json_encode($facesByFile[$stored] ?? []);
+            ?>
+                { url: "<?php echo BASE_URL . 'data.php?id=' . $img['view_token'] . '&type=raw'; ?>", isVideo: <?php echo $isVideo; ?>, token: "<?php echo $img['view_token']; ?>", faces: <?php echo $facesJson; ?> },
             <?php endforeach; ?>
         ];
         
         let currentIndex = 0;
 
         // Lightbox Funkciók
+        function openLightboxByToken(token) {
+            const index = images.findIndex(i => i.token === token);
+            if (index !== -1) openLightbox(index);
+        }
+
         function openLightbox(index) {
             currentIndex = index;
             const lb = document.getElementById('lightbox');
             const img = document.getElementById('lightbox-img');
-            img.src = images[currentIndex];
-            lb.style.display = 'block';
+            const vid = document.getElementById('lightbox-vid');
+            const container = document.getElementById('lbBboxContainer');
+            container.innerHTML = '';
+            
+            const item = images[currentIndex];
+            
+            if (item.isVideo) {
+                img.style.display = 'none';
+                vid.style.display = 'block';
+                vid.src = item.url;
+                vid.onloadedmetadata = () => drawPublicBboxes(vid, item.faces);
+                vid.play().catch(e => console.log("Autoplay prevented"));
+            } else {
+                if (vid) { vid.style.display = 'none'; vid.pause(); }
+                img.style.display = 'block';
+                img.src = item.url;
+                img.onload = () => drawPublicBboxes(img, item.faces);
+            }
+            
+            lb.classList.add('is-open');
             document.body.style.overflow = 'hidden';
             
-            // Logolás (God Mode)
             if (window.LogSystem) {
-                window.LogSystem.logImageView(images[currentIndex].split('=').pop(), index);
+                window.LogSystem.logImageView(item.url.split('=').pop(), index);
             }
         }
 
+        // Arc kiemelő szűrő logika
+        let activeFilterCluster = null;
+        const originalThumbnailsHtml = document.getElementById('thumbnailGrid') ? document.getElementById('thumbnailGrid').innerHTML : '';
+
+        function filterByCluster(clusterId) {
+            activeFilterCluster = clusterId;
+
+            // Egyező thumb-item-ek megjelenítése, többi elrejtése
+            const items = document.querySelectorAll('#thumbnailGrid .thumb-item');
+            let matchCount = 0;
+            items.forEach(item => {
+                const clusters = (item.dataset.clusters || '').split(',').map(Number);
+                const match = clusters.includes(clusterId);
+                // Ha egyezik: marad + kék kiemelés. Ha nem: elrejtjük.
+                item.style.display = match ? '' : 'none';
+                if (match) {
+                    item.style.outline = '3px solid #00e5ff';
+                    item.style.boxShadow = '0 0 18px rgba(0,229,255,.4)';
+                    item.style.borderRadius = '6px';
+                    matchCount++;
+                } else {
+                    item.style.outline = '';
+                    item.style.boxShadow = '';
+                }
+            });
+
+            const label = clusterId === -1 ? 'Ismeretlen arc' : 'Személy #' + clusterId;
+            document.getElementById('faceHighlightText').textContent =
+                '👁️ ' + label + ' — ' + matchCount + ' kép megjelenítve';
+            document.getElementById('faceHighlightPanel').style.display = 'block';
+
+            // Lightbox bezárása + görgetés a galériához
+            closeLightbox();
+            document.getElementById('thumbnailGrid').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function clearClusterFilter() {
+            activeFilterCluster = null;
+            document.getElementById('faceHighlightPanel').style.display = 'none';
+            document.querySelectorAll('#thumbnailGrid .thumb-item').forEach(item => {
+                item.style.display = '';
+                item.style.outline = '';
+                item.style.boxShadow = '';
+            });
+        }
+
+        function drawPublicBboxes(mediaEl, faces) {
+            const container = document.getElementById('lbBboxContainer');
+            container.innerHTML = '';
+            if (!faces || faces.length === 0) return;
+
+            const natW = mediaEl.naturalWidth || mediaEl.videoWidth || 0;
+            const natH = mediaEl.naturalHeight || mediaEl.videoHeight || 0;
+            if (!natW || !natH) {
+                setTimeout(() => drawPublicBboxes(mediaEl, faces), 100);
+                return;
+            }
+
+            // Animáció beszúrása, ha még nincs
+            if (!document.getElementById('facePulseStyle')) {
+                const style = document.createElement('style');
+                style.id = 'facePulseStyle';
+                style.innerHTML = `
+                    @keyframes facePulse {
+                        0% { box-shadow: 0 0 8px currentColor; }
+                        50% { box-shadow: 0 0 25px currentColor; }
+                        100% { box-shadow: 0 0 8px currentColor; }
+                    }
+                    .face-box-anim {
+                        animation: facePulse 2s infinite ease-in-out;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            const clusterColors = ['#00e5ff','#ff3366','#00e676','#ffaa00','#a78bfa','#f472b6','#34d399','#fbbf24','#60a5fa','#a3e635','#f87171','#38bdf8','#818cf8','#e879f9','#4ade80'];
+            const getColor = cid => cid === -1 ? 'rgba(255,255,255,0.7)' : clusterColors[Math.abs(cid) % clusterColors.length];
+
+            faces.forEach(f => {
+                if (!f.bbox || f.bbox.length !== 4) return;
+                const [x1, y1, x2, y2] = f.bbox;
+                const color = getColor(f.cluster_id);
+                const isActive = activeFilterCluster === f.cluster_id;
+
+                const box = document.createElement('div');
+                box.className = 'face-box-anim';
+                // background:rgba(0,0,0,0.01) is crucial so the inside of the box is clickable, not just the border!
+                box.style.cssText = [
+                    'position:absolute',
+                    `border: ${isActive ? '4px' : '3px'} solid ${color}`,
+                    `color: ${color}`,
+                    `background:rgba(255,255,255,0.01)`,
+                    `left:${(x1/natW)*100}%`,
+                    `top:${(y1/natH)*100}%`,
+                    `width:${((x2-x1)/natW)*100}%`,
+                    `height:${((y2-y1)/natH)*100}%`,
+                    'cursor:pointer',
+                    'pointer-events:auto',
+                    'transition:border-width 0.2s, background 0.2s',
+                    isActive ? `outline:3px solid ${color}` : '',
+                ].filter(Boolean).join(';');
+
+                // Hover kiemelés
+                box.addEventListener('mouseenter', () => {
+                    box.style.background = 'rgba(255,255,255,0.1)';
+                    box.style.borderWidth = '4px';
+                });
+                box.addEventListener('mouseleave', () => {
+                    box.style.background = 'rgba(255,255,255,0.01)';
+                    box.style.borderWidth = isActive ? '4px' : '3px';
+                });
+
+                // Kattintásra szűrés
+                box.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    filterByCluster(f.cluster_id);
+                });
+
+                const label = document.createElement('div');
+                // pointer-events:auto is added here
+                label.style.cssText = `position:absolute;top:-26px;left:-3px;background:${color};color:#000;padding:3px 8px;font-size:12px;font-weight:bold;border-radius:4px 4px 0 0;white-space:nowrap;cursor:pointer;pointer-events:auto;`;
+                label.textContent = (f.cluster_id === -1 ? '? Ismeretlen' : '★ Személy #' + f.cluster_id);
+                label.title = 'Kattints a szűréshez!';
+                label.addEventListener('click', (e) => { e.stopPropagation(); filterByCluster(f.cluster_id); });
+
+                box.appendChild(label);
+                container.appendChild(box);
+            });
+        }
+
         function closeLightbox() {
-            document.getElementById('lightbox').style.display = 'none';
+            document.getElementById('lightbox').classList.remove('is-open');
             document.body.style.overflow = 'auto';
+            const vid = document.getElementById('lightbox-vid');
+            if (vid) vid.pause();
+            document.getElementById('lbBboxContainer').innerHTML = '';
         }
 
         function changeImage(dir) {
             currentIndex += dir;
             if (currentIndex >= images.length) currentIndex = 0;
             if (currentIndex < 0) currentIndex = images.length - 1;
-            document.getElementById('lightbox-img').src = images[currentIndex];
+            openLightbox(currentIndex); // Re-use the setup logic
+        }
+
+        // Fórum tag funkció
+        function insertImageTag(token) {
+            const textarea = document.getElementById('commentMsg');
+            if (!textarea) return;
+            const tag = '[image:' + token + ']';
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const text = textarea.value;
+            
+            textarea.value = text.substring(0, start) + tag + text.substring(end);
+            textarea.selectionStart = textarea.selectionEnd = start + tag.length;
+            textarea.focus();
+            
+            document.querySelector('.forum').scrollIntoView({ behavior: 'smooth' });
         }
 
         // Billentyűzet vezérlés

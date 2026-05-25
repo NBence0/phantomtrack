@@ -8,20 +8,32 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-$gallery_id = isset($_GET['gallery_id']) ? (int)$_GET['gallery_id'] : 0;
-if ($gallery_id <= 0) die("Hiányzó gallery_id.");
-$pageTitle = "VisionAI Szereplők Keresése";
+$token = isset($_GET['token']) ? $_GET['token'] : '';
+if (empty($token)) die("Hiányzó token.");
+
+require_once dirname(__DIR__) . '/facefinder/api/db.php';
+$pdo = Database::getInstance()->getConnection();
+$stmt = $pdo->prepare("SELECT id, name, view_token FROM galleries WHERE view_token = ?");
+$stmt->execute([$token]);
+$gallery = $stmt->fetch();
+if (!$gallery) die("Érvénytelen token.");
+
+$gallery_id = $gallery['id'];
+$gallery_name = htmlspecialchars($gallery['name']);
+$view_token = $gallery['view_token'];
+
+$pageTitle = "VisionAI Szereplők Keresése - " . $gallery_name;
 require_once __DIR__ . '/../includes/header.php';
 ?>
 <link rel="stylesheet" href="static/css/search.css">
 <script>
-const GALLERY_ID = <?= $gallery_id ?>;
+const GALLERY_TOKEN = "<?= $view_token ?>";
 const originalFetch = window.fetch;
 window.fetch = function() {
     let [resource, config] = arguments;
     if (typeof resource === 'string' && resource.includes('api/')) {
         let sep = resource.includes('?') ? '&' : '?';
-        resource += sep + 'gallery_id=' + GALLERY_ID;
+        resource += sep + 'token=' + GALLERY_TOKEN;
     }
     return originalFetch(resource, config);
 };
@@ -33,7 +45,7 @@ window.fetch = function() {
 
 <div class="topbar">
   <div class="topbar-left">
-    <a href="index.php?gallery_id=<?= $gallery_id ?>" class="back-btn">← Vezérlőpult</a>
+    <a href="../gallery_view.php?token=<?= $view_token ?>" class="back-btn">← Vissza a Galériába</a>
     <span class="page-title">👥 Szereplők</span>
     <span class="badge" id="personCount">...</span>
   </div>
@@ -45,6 +57,7 @@ window.fetch = function() {
     <input type="text" id="searchInput" placeholder="Keresés névben..." oninput="filterCards()">
   </div>
   <button class="btn btn-selfie" onclick="toggleSelfie()">📷 Keresés szelfi alapján</button>
+  <button class="btn btn-selfie" style="background:var(--color-warning); color:#333;" onclick="runClustering()">⚙️ Klaszterezés</button>
   <span class="cluster-status" id="clusterStatus"></span>
 </div>
 

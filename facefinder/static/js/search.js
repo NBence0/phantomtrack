@@ -20,7 +20,7 @@ function renderGrid(clusters) {
   document.getElementById('personCount').textContent = clusters.length + ' személy';
 
   if (clusters.length === 0) {
-    showEmpty('Még nincsenek csoportosított arcok. Kattints az Újracsoportosítás gombra!');
+    showEmpty('Még nincsenek csoportosított arcok ebben a galériában.');
     return;
   }
 

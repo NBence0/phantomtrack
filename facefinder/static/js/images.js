@@ -75,6 +75,13 @@ function loadMoreImages() {
             appendImages(newImages);
             currentImages = currentImages.concat(newImages);
             currentPage++;
+            
+            // Ha a betöltött képek nem töltik ki a képernyőt, töltsünk be még!
+            setTimeout(() => {
+                if (!allLoaded && document.body.scrollHeight <= window.innerHeight + 100) {
+                    loadMoreImages();
+                }
+            }, 100);
         })
         .catch(() => { isLoading = false; showScrollLoader(false); showError('Hálózati hiba.'); });
 }
@@ -112,6 +119,10 @@ function showError(msg) {
     }
 }
 
+function changeGridSize(size) {
+    document.getElementById('galleryGrid').style.gridTemplateColumns = `repeat(auto-fill, minmax(${size}px, 1fr))`;
+}
+
 // ── GRID MEGJELENÍTÉS ─────────────────────────────────────────────────────────
 function appendImages(images) {
     const grid = document.getElementById('galleryGrid');
@@ -121,6 +132,8 @@ function appendImages(images) {
 
     const globalOffset = currentImages.length; // eddig mennyi volt
 
+    const fragment = document.createDocumentFragment();
+
     images.forEach((img, localIdx) => {
         const index = globalOffset + localIdx;
         const card  = document.createElement('div');
@@ -129,34 +142,60 @@ function appendImages(images) {
 
         const clusterCounts = {};
         img.faces.forEach(f => { if (f.cluster_id !== -1) clusterCounts[f.cluster_id] = (clusterCounts[f.cluster_id]||0)+1; });
+        img.clusterCounts = clusterCounts; // Store for drawGridBboxes
         const dups = Object.keys(clusterCounts).filter(k => clusterCounts[k] > 1);
         const dupHtml = dups.length ? `<div class="dup-warning">⚠️ ID: ${dups.join(', ')}</div>` : '';
 
+        const storedFile = img.stored_file || img.file;
+        const isVideo = /\.(mp4|webm|ogg|mov|avi|mkv)$/i.test(storedFile);
+        
+        let mediaHtml = isVideo 
+            ? `<video src="../uploads/${storedFile}" onclick="openLightbox(${index})" style="width:100%; height:100%; object-fit:cover;" muted loop onmouseover="this.play()" onmouseout="this.pause()"></video>`
+            : `<img src="../uploads/${storedFile}" alt="${img.file}" onclick="openLightbox(${index})" loading="lazy">`;
+
         card.innerHTML = `
             <div class="img-container">
-                <img src="../images/${img.file}" alt="${img.file}" onclick="openLightbox(${index})" loading="lazy">
+                ${mediaHtml}
                 <div class="bbox-layer" id="grid_layer_${index}"></div>
             </div>
             <div class="img-info">
                 <div class="img-stats">
-                    <div class="face-count">👁️ ${img.faces.length}</div>${dupHtml}
+                    <div class="face-count"><i class="fas fa-eye"></i> ${Array.isArray(img.faces) ? img.faces.length : 0}</div>${dupHtml}
                 </div>
-                <div class="img-filename">${img.file}</div>
+                <div class="img-filename" title="${img.file}">${img.file}</div>
             </div>
         `;
-        grid.appendChild(card);
+        fragment.appendChild(card);
 
-        const imgEl = card.querySelector('img');
-        const draw  = () => drawGridBboxes(img, index, imgEl);
-        if (imgEl.complete) draw(); else imgEl.onload = draw;
+        const mediaEl = card.querySelector('img, video');
+        const draw  = () => {
+            if (mediaEl.tagName === 'VIDEO' && mediaEl.videoWidth === 0) { setTimeout(draw, 100); return; }
+            if (mediaEl.tagName === 'IMG' && mediaEl.naturalWidth === 0) { setTimeout(draw, 100); return; }
+            drawGridBboxes(img, index, mediaEl);
+        };
+        if (mediaEl.tagName === 'VIDEO') {
+            if (mediaEl.readyState >= 1) draw(); else mediaEl.addEventListener('loadedmetadata', draw);
+        } else {
+            if (mediaEl.complete) draw(); else mediaEl.onload = draw;
+        }
     });
+    grid.appendChild(fragment);
 }
 
-function drawGridBboxes(imgData, index, imgEl) {
+function drawGridBboxes(imgData, index, mediaEl) {
     const container = document.getElementById(`grid_layer_${index}`);
     if (!container) return;
-    const natW = imgEl.naturalWidth, natH = imgEl.naturalHeight;
-    if (!natW || !natH) return;
+    // Clear previous boxes
+    container.innerHTML = '';
+    const natW = mediaEl.naturalWidth || mediaEl.videoWidth || 1; // Fallback to avoid division by zero
+    const natH = mediaEl.naturalHeight || mediaEl.videoHeight || 1;
+    if (natW <= 1 || natH <= 1) {
+        // If still not loaded, try again in 100ms
+        setTimeout(() => drawGridBboxes(imgData, index, mediaEl), 100);
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
 
     imgData.faces.forEach(f => {
         if (!f.bbox || f.bbox.length !== 4) return;
@@ -169,19 +208,62 @@ function drawGridBboxes(imgData, index, imgEl) {
         box.style.height = `${((y2-y1)/natH)*100}%`;
         const color = getColorForCluster(f.cluster_id);
         box.style.borderColor = color;
-        const dupsInImg = imgData.faces.filter(cf => cf.cluster_id === f.cluster_id).length;
-        if (f.cluster_id !== -1 && dupsInImg > 1) {
-            box.style.borderStyle = 'dashed';
-            box.style.boxShadow = `0 0 12px ${color}, inset 0 0 12px ${color}`;
-        }
+        
+        // Use pre-calculated counts
+        const dupsInImg = imgData.clusterCounts && imgData.clusterCounts[f.cluster_id] ? imgData.clusterCounts[f.cluster_id] : 1;
         const label = document.createElement('div');
         label.className = 'bbox-label'; label.style.backgroundColor = color;
-        label.textContent = f.cluster_id === -1 ? '?' : '#'+f.cluster_id;
+        
+        if (f.cluster_id !== -1 && dupsInImg > 1) {
+            // Eredeti FaceFinder duplikátum stílus visszaállítása
+            box.style.borderStyle = 'dashed';
+            box.style.boxShadow = `0 0 12px ${color}, inset 0 0 12px ${color}`;
+            label.textContent = '?' === f.cluster_id ? '?' : '#' + f.cluster_id;
+        } else {
+            label.textContent = f.cluster_id === -1 ? '?' : '#' + f.cluster_id;
+        }
         box.appendChild(label);
+        
         if (selectedFaces.has(f.face_id)) box.classList.add('selected');
         box.onclick = (e) => { e.stopPropagation(); toggleSelect(f.face_id); };
-        container.appendChild(box);
+
+        // Track original dimensions
+        box.dataset.origW = box.style.width;
+        box.dataset.origH = box.style.height;
+
+        // Átméretezés figyelése
+        box.addEventListener('mouseup', (e) => handleBboxResize(e, box, f.face_id, natW, natH));
+
+        fragment.appendChild(box);
     });
+    container.appendChild(fragment);
+}
+
+function handleBboxResize(e, box, faceId, natW, natH) {
+    if (e.target !== box) return; // Csak ha magát a dobozt méretezi (jobb alsó sarok)
+    
+    // Check if it actually resized
+    if (box.style.width === box.dataset.origW && box.style.height === box.dataset.origH) return;
+    
+    const bw = parseFloat(box.style.width);
+    const bh = parseFloat(box.style.height);
+    const bx = parseFloat(box.style.left);
+    const by = parseFloat(box.style.top);
+    
+    // Convert back to native pixels
+    const x1 = (bx / 100) * natW;
+    const y1 = (by / 100) * natH;
+    const x2 = x1 + ((bw / 100) * natW);
+    const y2 = y1 + ((bh / 100) * natH);
+
+    fetch('api/editor_api.php?action=update_bbox', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ face_id: faceId, bbox: [x1, y1, x2, y2] })
+    }).then(() => {
+        // Update original dimensions after successful save
+        box.dataset.origW = box.style.width;
+        box.dataset.origH = box.style.height;
+    }).catch(console.error);
 }
 
 // ── KIJELÖLÉS & TÖRLÉS ───────────────────────────────────────────────────────
@@ -194,16 +276,32 @@ function toggleSelect(faceId) {
     });
     updateActionBar();
 }
+
 function deselectAll() {
     selectedFaces.clear();
     document.querySelectorAll('.bbox.selected').forEach(el => el.classList.remove('selected'));
     updateActionBar();
 }
+
 function updateActionBar() {
     const bar = document.getElementById('actionBar');
-    document.getElementById('selCount').textContent = selectedFaces.size;
-    bar.classList.toggle('is-visible', selectedFaces.size > 0);
+    if (bar) {
+        document.getElementById('selCount').textContent = selectedFaces.size;
+        bar.style.display = selectedFaces.size > 0 ? 'flex' : 'none';
+    }
+    
+    const lbSelInfo = document.getElementById('lbSelInfo');
+    const btnLbDelete = document.getElementById('btnLbDelete');
+    const btnLbDeselect = document.getElementById('btnLbDeselect');
+    if (lbSelInfo) {
+        document.getElementById('lbSelCount').textContent = selectedFaces.size;
+        const display = selectedFaces.size > 0 ? 'inline-block' : 'none';
+        lbSelInfo.style.display = display;
+        btnLbDelete.style.display = display;
+        btnLbDeselect.style.display = display;
+    }
 }
+
 function deleteSelected() {
     if (!selectedFaces.size) return;
     if (!confirm(`VIGYÁZAT! Biztosan véglegesen törlöd a kijelölt ${selectedFaces.size} arcot?`)) return;
@@ -225,22 +323,37 @@ function deleteSelected() {
 const lbOverlay   = document.getElementById('lightbox');
 const lbWrapper   = document.getElementById('lbWrapper');
 const lbImg       = document.getElementById('lbImg');
+const lbVid       = document.getElementById('lbVid');
 const lbContainer = document.getElementById('lbBboxContainer');
 let lbZoom=1,lbPanX=0,lbPanY=0,isDragging=false,startDragX,startDragY;
 
 function updateTransform() {
     lbWrapper.style.transform = `translate(${lbPanX}px,${lbPanY}px) scale(${lbZoom})`;
 }
+
 function openLightbox(index) {
     if (index < 0 || index >= currentImages.length) return;
     activeLightboxIndex = index;
     const imgData = currentImages[index];
     lbZoom=1; lbPanX=0; lbPanY=0; updateTransform();
-    lbImg.src = `../images/${imgData.file}`;
     lbContainer.innerHTML = '';
 
-    tagImageFile = imgData.file;
-    lbImg.onload = () => { tagImageNatW = lbImg.naturalWidth; tagImageNatH = lbImg.naturalHeight; };
+    const storedFile = imgData.stored_file || imgData.file;
+    const isVideo = /\.(mp4|webm|ogg|mov|avi|mkv)$/i.test(storedFile);
+    tagImageFile = storedFile;
+
+    if (isVideo) {
+        lbImg.style.display = 'none';
+        lbVid.style.display = 'block';
+        lbVid.src = `../uploads/${storedFile}`;
+        lbVid.onloadedmetadata = () => { tagImageNatW = lbVid.videoWidth; tagImageNatH = lbVid.videoHeight; };
+        lbVid.play().catch(e=>console.log(e));
+    } else {
+        if (lbVid) { lbVid.style.display = 'none'; lbVid.pause(); }
+        lbImg.style.display = 'block';
+        lbImg.src = `../uploads/${storedFile}`;
+        lbImg.onload = () => { tagImageNatW = lbImg.naturalWidth; tagImageNatH = lbImg.naturalHeight; };
+    }
 
     const gridLayer = document.getElementById(`grid_layer_${index}`);
     if (gridLayer) {
@@ -249,6 +362,11 @@ function openLightbox(index) {
             const faceId = parseInt(b.id.replace('grid_bbox_',''));
             b.id = 'lb_bbox_'+faceId;
             b.onclick = (e) => { e.stopPropagation(); toggleSelect(faceId); };
+            
+            // Re-attach resize listener
+            const natW = imgData.natW || lbImg.naturalWidth;
+            const natH = imgData.natH || lbImg.naturalHeight;
+            b.addEventListener('mouseup', (e) => handleBboxResize(e, b, faceId, lbImg.naturalWidth, lbImg.naturalHeight));
         });
     }
     updateTagBtn();
@@ -263,6 +381,7 @@ function closeLightbox() {
     lbWrapper.style.cursor = '';
     document.getElementById('tagDrawBox')?.remove();
     updateTagBtn();
+    if (lbVid) lbVid.pause();
 }
 function prevImage() { if (activeLightboxIndex > 0) openLightbox(activeLightboxIndex-1); }
 function nextImage() { if (activeLightboxIndex >= 0 && activeLightboxIndex < currentImages.length-1) openLightbox(activeLightboxIndex+1); }
@@ -323,8 +442,12 @@ function endTagDraw(e) {
     if (w < 10 || h < 10) { box.remove(); return; } // Túl kis rajz
 
     // Koordináták visszaszámítása a kép natív méreteire
-    const dispW = lbImg.clientWidth, dispH = lbImg.clientHeight;
-    const scaleX = tagImageNatW / dispW, scaleY = tagImageNatH / dispH;
+    // Ha a kép látható, lbImg méreteit használjuk; ha videó, lbVid méreteit
+    const activeMedia = (lbImg && lbImg.style.display !== 'none') ? lbImg : (lbVid || lbImg);
+    const dispW = activeMedia.clientWidth  || 1;
+    const dispH = activeMedia.clientHeight || 1;
+    const scaleX = tagImageNatW / dispW;
+    const scaleY = tagImageNatH / dispH;
     const x1 = parseFloat(box.style.left) * scaleX;
     const y1 = parseFloat(box.style.top)  * scaleY;
     const x2 = (parseFloat(box.style.left) + w) * scaleX;
@@ -340,7 +463,6 @@ function endTagDraw(e) {
         body: JSON.stringify({ video_path: tagImageFile, bbox:[x1,y1,x2,y2], cluster_id: clusterId })
     }).then(r=>r.json()).then(res=>{
         if (res.success) {
-            // Frissítjük a lightboxban megjelenő arcok listáját
             const color = getColorForCluster(clusterId);
             const newBox = document.createElement('div');
             newBox.className = 'bbox'; newBox.id = 'lb_bbox_'+res.face_id;
@@ -353,7 +475,9 @@ function endTagDraw(e) {
             const lbl = document.createElement('div'); lbl.className='bbox-label'; lbl.style.background=color;
             lbl.textContent = clusterId === -1 ? '?' : '#'+clusterId;
             newBox.appendChild(lbl);
-            newBox.onclick = (e) => { e.stopPropagation(); toggleSelect(res.face_id); };
+
+            newBox.addEventListener('mouseup', (e) => handleBboxResize(e, newBox, res.face_id, tagImageNatW, tagImageNatH));
+
             lbContainer.appendChild(newBox);
             alert(`✅ Kézi arc mentve! (face_id: ${res.face_id})`);
         } else alert('Hiba: ' + res.error);

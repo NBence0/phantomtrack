@@ -80,6 +80,9 @@ $category_id_from_url = isset($_GET['category_id']) ? (int)$_GET['category_id'] 
             <li <?php if ($current_page == 'users.php' || $current_page == 'user_manager.php') echo 'class="active"'; ?>>
                 <a href="<?php echo BASE_URL; ?>tracker/users.php"><i class="fas fa-users-cog"></i><span>Felhasználók</span></a>
             </li>
+            <li <?php if ($current_page == 'admin_ai.php') echo 'class="active"'; ?>>
+                <a href="<?php echo BASE_URL; ?>tracker/admin_ai.php"><i class="fas fa-brain"></i><span>VisionAI Admin</span></a>
+            </li>
         <?php endif; ?>
     </ul>
     

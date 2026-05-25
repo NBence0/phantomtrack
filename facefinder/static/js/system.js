@@ -5,9 +5,10 @@ let lastLogContent = "";
 function toast(msg, isErr = false) {
     const t = document.getElementById('toast');
     t.textContent = msg;
-    t.className = 'show' + (isErr ? ' err' : '');
+    t.classList.toggle('err', isErr);
+    t.classList.add('show');
     clearTimeout(t._timer);
-    t._timer = setTimeout(() => t.className = '', 3500);
+    t._timer = setTimeout(() => t.classList.remove('show'), 3500);
 }
 
 function logLine(msg, type = 'res') {

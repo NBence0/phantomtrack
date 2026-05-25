@@ -21,34 +21,56 @@ try {
 }
 
 // Ellenőrizzük a jogosultságot, és szerezzük meg a galériát
-// Itt GET-ből vagy JSON body-ból is jöhet a gallery_id
+// Itt GET-ből vagy JSON body-ból is jöhet a token vagy gallery_id
 $gallery_id = isset($_GET['gallery_id']) ? (int)$_GET['gallery_id'] : 0;
-if ($gallery_id <= 0) {
-    $inputData = json_decode(file_get_contents('php://input'), true);
-    if (isset($inputData['gallery_id'])) {
-        $gallery_id = (int)$inputData['gallery_id'];
+$token = isset($_GET['token']) ? $_GET['token'] : '';
+
+$inputData = json_decode(file_get_contents('php://input'), true);
+if ($inputData) {
+    if (isset($inputData['gallery_id'])) $gallery_id = (int)$inputData['gallery_id'];
+    if (isset($inputData['token'])) $token = $inputData['token'];
+}
+
+if ($token) {
+    $stmtToken = $pdo->prepare("SELECT id FROM galleries WHERE view_token = ?");
+    $stmtToken->execute([$token]);
+    $resolved_id = $stmtToken->fetchColumn();
+    if ($resolved_id) $gallery_id = (int)$resolved_id;
+}
+
+$action = $_GET['action'] ?? '';
+
+// Globális műveletek, amikhez nem kell gallery_id
+$globalActions = ['export_global_pending', 'import_offline_results', 'clean_all_clusters', 'get_system_stats', 'cleanup'];
+
+if (!in_array($action, $globalActions)) {
+    if ($gallery_id <= 0) {
+        echo json_encode(['success' => false, 'error' => 'Hiányzó gallery_id vagy token.']);
+        exit;
     }
-}
 
-if ($gallery_id <= 0) {
-    echo json_encode(['success' => false, 'error' => 'Hiányzó gallery_id.']);
-    exit;
-}
+    $stmt = $pdo->prepare("SELECT user_id FROM galleries WHERE id = ?");
+    $stmt->execute([$gallery_id]);
+    $gallery = $stmt->fetch(PDO::FETCH_ASSOC);
 
-$stmt = $pdo->prepare("SELECT user_id FROM galleries WHERE id = ?");
-$stmt->execute([$gallery_id]);
-$gallery = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$gallery) {
+        echo json_encode(['success' => false, 'error' => 'Galéria nem található.']);
+        exit;
+    }
 
-if (!$gallery) {
-    echo json_encode(['success' => false, 'error' => 'Galéria nem található.']);
-    exit;
-}
-
-require_once $rootDir . '/includes/auth.php';
-$is_admin = isAdmin();
-if (!$is_admin && $gallery['user_id'] != $_SESSION['user_id']) {
-    echo json_encode(['success' => false, 'error' => 'Nincs hozzáférés ehhez a galériához.']);
-    exit;
+    require_once $rootDir . '/includes/auth.php';
+    $is_admin = isAdmin();
+    if (!$is_admin && $gallery['user_id'] != $_SESSION['user_id']) {
+        echo json_encode(['success' => false, 'error' => 'Nincs hozzáférés ehhez a galériához.']);
+        exit;
+    }
+} else {
+    // Globális műveleteknél csak admin férhet hozzá!
+    require_once $rootDir . '/includes/auth.php';
+    if (!isAdmin()) {
+        echo json_encode(['success' => false, 'error' => 'Nincs globális hozzáférés.']);
+        exit;
+    }
 }
 
 $action = $_GET['action'] ?? '';
@@ -97,50 +119,66 @@ if ($action === 'get_images') {
     $offset = ($page - 1) * $limit;
     
     try {
-        $stmt = $pdo->prepare("SELECT COUNT(DISTINCT video_path) FROM ff_faces WHERE gallery_id = ?");
-        $stmt->execute([$gallery_id]);
-        $total = $stmt->fetchColumn();
-        
+        // Count distinct images using stored filename join
         $stmt = $pdo->prepare("
-            SELECT DISTINCT video_path 
-            FROM ff_faces 
-            WHERE gallery_id = ?
-            ORDER BY video_path ASC 
+            SELECT COUNT(DISTINCT fi.id)
+            FROM ff_faces f
+            LEFT JOIN files fi ON fi.stored_filename = SUBSTRING_INDEX(REPLACE(f.video_path, '\\\\', '/'), '/', -1) AND fi.gallery_id = f.gallery_id
+            WHERE f.gallery_id = ?
+        ");
+        $stmt->execute([$gallery_id]);
+        $total = (int)$stmt->fetchColumn();
+
+        // Get paginated distinct images with original filenames
+        $stmt = $pdo->prepare("
+            SELECT DISTINCT f.video_path, fi.original_filename
+            FROM ff_faces f
+            LEFT JOIN files fi ON fi.stored_filename = SUBSTRING_INDEX(REPLACE(f.video_path, '\\\\', '/'), '/', -1) AND fi.gallery_id = f.gallery_id
+            WHERE f.gallery_id = ?
+            ORDER BY COALESCE(fi.original_filename, f.video_path) ASC
             LIMIT ? OFFSET ?
         ");
         $stmt->bindValue(1, $gallery_id);
         $stmt->bindValue(2, $limit, PDO::PARAM_INT);
         $stmt->bindValue(3, $offset, PDO::PARAM_INT);
         $stmt->execute();
-        $video_paths = $stmt->fetchAll(PDO::FETCH_COLUMN);
-        
+        $path_rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $video_paths = array_column($path_rows, 'video_path');
+        $filename_map = [];
+        foreach ($path_rows as $r) {
+            $stored = basename(str_replace('\\', '/', $r['video_path']));
+            $filename_map[$stored] = $r['original_filename'] ?: $stored;
+        }
+
         $images = [];
         if (!empty($video_paths)) {
             $inQuery = str_repeat('?,', count($video_paths) - 1) . '?';
             $faceStmt = $pdo->prepare("
-                SELECT face_id, bbox, cluster_id, video_path 
-                FROM ff_faces 
+                SELECT face_id, bbox, cluster_id, video_path
+                FROM ff_faces
                 WHERE gallery_id = ? AND video_path IN ($inQuery)
             ");
             $faceParams = array_merge([$gallery_id], $video_paths);
             $faceStmt->execute($faceParams);
             $all_faces = $faceStmt->fetchAll(PDO::FETCH_ASSOC);
-            
+
             $grouped = [];
             foreach ($all_faces as $f) {
-                $vp = basename(str_replace('\\', '/', $f['video_path']));
+                $stored = basename(str_replace('\\', '/', $f['video_path']));
                 $bbox = $f['bbox'] ? array_map('floatval', explode(',', $f['bbox'])) : [];
-                $grouped[$vp][] = [
-                    'face_id' => (int)$f['face_id'],
-                    'bbox' => $bbox,
+                $grouped[$stored][] = [
+                    'face_id'    => (int)$f['face_id'],
+                    'bbox'       => $bbox,
                     'cluster_id' => (int)$f['cluster_id']
                 ];
             }
             foreach ($video_paths as $vpFull) {
-                $vp = basename(str_replace('\\', '/', $vpFull));
+                $stored = basename(str_replace('\\', '/', $vpFull));
+                $displayName = $filename_map[$stored] ?? $stored;
                 $images[] = [
-                    'file' => $vp,
-                    'faces' => $grouped[$vp] ?? []
+                    'file'        => $displayName,
+                    'stored_file' => $stored,
+                    'faces'       => $grouped[$stored] ?? []
                 ];
             }
         }
@@ -251,6 +289,24 @@ if ($action === 'delete_manual_face') {
     exit;
 }
 
+if ($action === 'update_bbox') {
+    $data    = json_decode(file_get_contents('php://input'), true);
+    $face_id = (int)($data['face_id'] ?? 0);
+    $bbox    = $data['bbox'] ?? [];
+    if (!$face_id || count($bbox) !== 4) {
+        echo json_encode(['success' => false, 'error' => 'Hiányzó face_id vagy érvénytelen bbox.']); exit;
+    }
+    try {
+        $bboxStr = implode(',', array_map('floatval', $bbox));
+        $stmt = $pdo->prepare("UPDATE ff_faces SET bbox = ? WHERE face_id = ? AND gallery_id = ?");
+        $stmt->execute([$bboxStr, $face_id, $gallery_id]);
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 if ($action === 'get_stats') {
     try {
         $stmt = $pdo->prepare("SELECT COUNT(*) FROM ff_faces WHERE gallery_id = ?");
@@ -315,6 +371,7 @@ if ($action === 'scan_gallery') {
     $uploadsDir = $rootDir . '/uploads/';
 
     try {
+        // Minden képfájl lekérése a galériából
         $stmt = $pdo->prepare(
             "SELECT stored_filename FROM files WHERE gallery_id = ? AND mime_type LIKE 'image/%' AND is_deleted = 0"
         );
@@ -326,23 +383,27 @@ if ($action === 'scan_gallery') {
             exit;
         }
 
+        // Már 'done' státuszú jobok — ezeket kihagyjuk
         $doneFiles = [];
-        $doneStmt = $pdo->prepare("SELECT file_path FROM ff_jobs WHERE gallery_id = ?");
+        $doneStmt = $pdo->prepare("SELECT file_path FROM ff_jobs WHERE gallery_id = ? AND status = 'done'");
         $doneStmt->execute([$gallery_id]);
         foreach ($doneStmt->fetchAll(PDO::FETCH_COLUMN) as $fp) {
             $doneFiles[basename($fp)] = true;
         }
 
-        $isWin = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN');
-        $fastApiPort = $isWin ? 8005 : 8000;
-        $fastApiUrl = "http://127.0.0.1:$fastApiPort";
+        $isWin       = (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN');
+        $fastApiUrl  = "http://127.0.0.1:" . ($isWin ? 8005 : 8000);
+        $count       = 0;
+        $skipped     = 0;
 
-        $count = 0;
-        $skipped = 0;
-
-        $insertStmt = $pdo->prepare("INSERT IGNORE INTO ff_jobs (gallery_id, file_path, status) VALUES (?, ?, 'pending')");
+        // INSERT IGNORE: ha már van ugyanolyan file_path a táblában, nem dob hibát
+        $insertStmt = $pdo->prepare(
+            "INSERT INTO ff_jobs (gallery_id, file_path, status) VALUES (?, ?, 'pending')
+             ON DUPLICATE KEY UPDATE status = IF(status = 'done', 'done', 'pending'), retry_count = 0"
+        );
 
         foreach ($storedFiles as $storedName) {
+            // Kihagyjuk a már sikeresen feldolgozottakat
             if (isset($doneFiles[(string)$storedName])) {
                 $skipped++;
                 continue;
@@ -358,18 +419,16 @@ if ($action === 'scan_gallery') {
             $insertStmt->execute([$gallery_id, $realPath]);
             $count++;
 
+            // Opcionálisan értesítjük a FastAPI daemant (ha fut)
             $data = ['path' => $realPath, 'gallery_id' => $gallery_id];
-            $options = [
-                'http' => [
-                    'header'  => "Content-type: application/json\r\n",
-                    'method'  => 'POST',
-                    'content' => json_encode($data),
-                    'timeout' => 1,
-                    'ignore_errors' => true,
-                ]
-            ];
-            $context = stream_context_create($options);
-            @file_get_contents($fastApiUrl . '/api/queue', false, $context);
+            $ctx  = stream_context_create(['http' => [
+                'header'       => "Content-type: application/json\r\n",
+                'method'       => 'POST',
+                'content'      => json_encode($data),
+                'timeout'      => 1,
+                'ignore_errors'=> true,
+            ]]);
+            @file_get_contents($fastApiUrl . '/api/queue', false, $ctx);
         }
 
         echo json_encode([
@@ -382,6 +441,7 @@ if ($action === 'scan_gallery') {
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
     exit;
+
 }
 
 
@@ -447,6 +507,43 @@ if ($action === 'export_pending_jobs') {
     exit;
 }
 
+if ($action === 'export_global_pending') {
+    require_once __DIR__ . '/auth_check.php';
+    try {
+        // Lekérdezzük az összes függőben lévő feladatot minden galériából
+        $stmt = $pdo->query("
+            SELECT j.gallery_id, j.file_path, f.original_filename
+            FROM ff_jobs j
+            LEFT JOIN files f ON f.stored_filename = SUBSTRING_INDEX(j.file_path, '/', -1) AND f.gallery_id = j.gallery_id
+            WHERE j.status = 'pending'
+        ");
+        $pendingFiles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($pendingFiles)) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'Nincsenek függőben lévő képek a teljes rendszerben.']);
+            exit;
+        }
+
+        $exportData = [];
+        foreach ($pendingFiles as $row) {
+            $exportData[] = [
+                'gallery_id' => $row['gallery_id'],
+                'stored_filename' => basename($row['file_path']),
+                'original_filename' => $row['original_filename'] ?: basename($row['file_path'])
+            ];
+        }
+
+        header('Content-Type: application/json');
+        header('Content-Disposition: attachment; filename="pending.json"');
+        echo json_encode($exportData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    } catch (Exception $e) {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 if ($action === 'import_offline_results') {
     // A php://input-ból kiolvassuk a JSON payloadot
     $data = json_decode(file_get_contents('php://input'), true);
@@ -482,13 +579,27 @@ if ($action === 'import_offline_results') {
 
             $videoPath = dirname(__DIR__, 2) . '/uploads/' . $filename;
             
+            // Ha a gallery_id 0 (globális import), megkeressük a fájl alapján a jobs táblából
+            $current_gallery_id = $gallery_id;
+            if ($current_gallery_id <= 0) {
+                // A file_path végződik a filename-re
+                $gStmt = $pdo->prepare("SELECT gallery_id FROM ff_jobs WHERE file_path LIKE ? LIMIT 1");
+                $gStmt->execute(['%/' . $filename]);
+                $found_id = $gStmt->fetchColumn();
+                if ($found_id) {
+                    $current_gallery_id = (int)$found_id;
+                } else {
+                    continue; // Nem találtuk meg a galériát ehhez a fájlhoz
+                }
+            }
+            
             // Konvertáljuk a base64 mezőket binárissá, ha vannak
             $emb_antelope = !empty($face['emb_antelope']) ? base64_decode($face['emb_antelope']) : null;
             $emb_adaface  = !empty($face['emb_adaface'])  ? base64_decode($face['emb_adaface'])  : null;
             $emb_vit      = !empty($face['emb_vit'])      ? base64_decode($face['emb_vit'])      : null;
 
             $stmt->execute([
-                $gallery_id,
+                $current_gallery_id,
                 $videoPath,
                 $face['bbox'] ?? null,
                 $face['face_thumb'] ?? null,
@@ -506,16 +617,17 @@ if ($action === 'import_offline_results') {
             ]);
             
             $imported++;
-            $processedFiles[$videoPath] = true;
+            $processedFiles[$current_gallery_id][] = $videoPath;
         }
 
-        // Frissítjük a jobokat "done" státuszra
+        // Frissítjük a jobokat "done" státuszra (galériánként csoportosítva)
         if (!empty($processedFiles)) {
-            $paths = array_keys($processedFiles);
-            $inQuery = str_repeat('?,', count($paths) - 1) . '?';
-            $updateStmt = $pdo->prepare("UPDATE ff_jobs SET status = 'done' WHERE gallery_id = ? AND file_path IN ($inQuery)");
-            $params = array_merge([$gallery_id], $paths);
-            $updateStmt->execute($params);
+            foreach ($processedFiles as $g_id => $paths) {
+                $inQuery = str_repeat('?,', count($paths) - 1) . '?';
+                $updateStmt = $pdo->prepare("UPDATE ff_jobs SET status = 'done' WHERE gallery_id = ? AND file_path IN ($inQuery)");
+                $params = array_merge([$g_id], $paths);
+                $updateStmt->execute($params);
+            }
         }
 
         $pdo->commit();
@@ -524,6 +636,57 @@ if ($action === 'import_offline_results') {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'get_system_stats') {
+    // Globális statisztika a munkákról
+    try {
+        $stmt = $pdo->query("
+            SELECT status, COUNT(*) as cnt 
+            FROM ff_jobs 
+            GROUP BY status
+        ");
+        $stats = ['pending' => 0, 'processing' => 0, 'done' => 0, 'failed' => 0];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $stats[$row['status']] = (int)$row['cnt'];
+        }
+        
+        $pylog = [];
+        $logFile = dirname(__DIR__) . '/temp/fastapi.log';
+        if (file_exists($logFile)) {
+            $pylog = explode("\n", trim(shell_exec("tail -n 20 " . escapeshellarg($logFile))));
+        }
+
+        echo json_encode(['success' => true, 'stats' => $stats, 'pylog' => $pylog]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'clean_all_clusters') {
+    require_once __DIR__ . '/auth_check.php';
+    try {
+        $pdo->exec("TRUNCATE TABLE ff_clusters");
+        $pdo->exec("UPDATE ff_faces SET cluster_id = -1, is_manually_assigned = 0");
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'cleanup') {
+    require_once __DIR__ . '/auth_check.php';
+    try {
+        // Töröljük a halott jobokat vagy resetelünk
+        $pdo->exec("UPDATE ff_jobs SET status = 'pending', retry_count = 0 WHERE status = 'failed'");
+        $pdo->exec("UPDATE ff_jobs SET status = 'pending' WHERE status = 'processing'");
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
     }
     exit;

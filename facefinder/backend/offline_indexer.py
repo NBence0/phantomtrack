@@ -3,25 +3,35 @@ import sys
 import zipfile
 import json
 import base64
+# pyrefly: ignore [missing-import]
 import cv2
 import tempfile
 import shutil
-import glob
 import numpy as np
 
 # A backend importokhoz biztosítjuk a helyes sys.path-t
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.dirname(BASE_DIR))
+PHANTOM_DIR = os.path.dirname(BASE_DIR)
+sys.path.insert(0, PHANTOM_DIR)
 
-# Kényszerítjük az AI modellek betöltését
+# --- Config patch: meg kell előzni, hogy a config.py SQLite-ot vagy DB-t nyisson ---
+# Először betöltjük a config modult, majd felülírjuk amit kell
 import backend.config as config
 config.LOAD_AI_MODELS = True
+# DB_PATH-t és TEMP_DIR-t a helyi temp mappára irányítjuk,
+# hogy ne próbáljon Linux-os /var/www útvonalakra írni
+_local_temp = os.path.join(PHANTOM_DIR, "data")
+os.makedirs(_local_temp, exist_ok=True)
+config.DATA_DIR = _local_temp
+config.DB_PATH  = os.path.join(_local_temp, "pipeline_data.db")
 
+# A DatabaseManager-t NEM importáljuk, NEM példányosítjuk.
+# Az engine.py importja sqlite3-t de nem használja (régi maradvány) — ez rendben van.
 try:
     from backend.engine import FaceEngine
 except ImportError as e:
     print(f"[HIBA] Nem sikerült betölteni a FaceEngine-t: {e}")
-    print("Győződj meg róla, hogy a script a 'backend' mappában van és az onnxruntime telepítve van.")
+    print("Győződj meg róla, hogy az onnxruntime (GPU verzió) és a többi függőség telepítve van.")
     sys.exit(1)
 
 def encode_base64(data):
@@ -34,42 +44,60 @@ def encode_base64(data):
     return data
 
 def main():
-    if len(sys.argv) < 2:
-        print("Használat: python offline_indexer.py <letöltött_zip_fájl_útvonala>")
+    if len(sys.argv) < 3:
+        print("Használat: python offline_indexer.py <pending.json> <kepek_mappaja>")
         sys.exit(1)
 
-    zip_path = sys.argv[1]
-    if not os.path.exists(zip_path):
-        print(f"[HIBA] A ZIP fájl nem található: {zip_path}")
+    json_path = sys.argv[1]
+    img_folder = sys.argv[2]
+    
+    if not os.path.exists(json_path):
+        print(f"[HIBA] A JSON fájl nem található: {json_path}")
+        sys.exit(1)
+        
+    if not os.path.exists(img_folder):
+        print(f"[HIBA] A képek mappája nem található: {img_folder}")
         sys.exit(1)
 
-    print(f"[*] ZIP feldolgozása: {zip_path}")
+    print(f"[*] JSON feldolgozása: {json_path}")
+    print(f"[*] Képek keresése itt: {img_folder}")
     print("[*] FaceEngine inicializálása (modellek betöltése, ez eltarthat egy darabig)...")
     
     # Init Engine (db_manager nélkül is megy az arckereső funkció)
     engine = FaceEngine(db_manager=None)
     engine._init_engine()
     
-    # Ideiglenes mappa létrehozása
-    temp_dir = tempfile.mkdtemp(prefix="visionai_")
-    print(f"[*] Fájlok kicsomagolása ide: {temp_dir}")
-    
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(temp_dir)
+    with open(json_path, 'r', encoding='utf-8') as f:
+        try:
+            pending_tasks = json.load(f)
+        except Exception as e:
+            print(f"[HIBA] Hibás JSON formátum: {e}")
+            sys.exit(1)
+            
+    if not isinstance(pending_tasks, list):
+        print("[HIBA] A JSON fájlnak listát kell tartalmaznia!")
+        sys.exit(1)
 
     results = []
-    
-    # Megkeressük az összes kicsomagolt fájlt (a ZIP-ben "gallery_X/filename" struktúra van)
-    files = glob.glob(os.path.join(temp_dir, '**', '*.*'), recursive=True)
-    images = [f for f in files if os.path.isfile(f)]
-    
-    print(f"[*] Összesen {len(images)} fájl kicsomagolva. Feldolgozás indul...")
+    print(f"[*] Összesen {len(pending_tasks)} feladat a JSON-ban. Feldolgozás indul...")
 
-    for i, img_path in enumerate(images):
-        # A relatív útvonal lesz a fájlnév, pl. "gallery_2/21" -> a backend ebből kiszedi a basenamet
-        rel_path = os.path.basename(img_path)
+    for i, task in enumerate(pending_tasks):
+        orig_name = task.get('original_filename', '')
+        stored_name = task.get('stored_filename', '')
         
-        print(f"[{i+1}/{len(images)}] {rel_path} feldolgozása...")
+        if not orig_name and not stored_name:
+            continue
+            
+        # Először próbáljuk az eredeti néven, ha az nincs, akkor a tárolt néven
+        img_path = os.path.join(img_folder, orig_name)
+        if not os.path.exists(img_path):
+            img_path = os.path.join(img_folder, stored_name)
+            
+        if not os.path.exists(img_path):
+            print(f"[{i+1}/{len(pending_tasks)}] [Kihagyva] Nem található fájl a mappában: {orig_name} vagy {stored_name}")
+            continue
+        
+        print(f"[{i+1}/{len(pending_tasks)}] {orig_name} feldolgozása...")
         
         img_bgr = cv2.imread(img_path)
         if img_bgr is None:
@@ -105,7 +133,7 @@ def main():
                 kps_str = ",".join(map(str, face.kps.flatten())) if face.kps is not None else None
                 
                 res = {
-                    "filename": rel_path,
+                    "filename": stored_name,
                     "bbox": bbox_str,
                     "face_thumb": thumb_b64,
                     "age": int(face.age) if face.age is not None else None,
@@ -132,12 +160,6 @@ def main():
         
     print(f"\n[*] Feldolgozás kész! {len(results)} arc adatai elmentve a '{out_file}' fájlba.")
     print("[*] Ezt a fájlt töltsd fel a VisionAI admin felületén.")
-    
-    # Takarítás
-    try:
-        shutil.rmtree(temp_dir)
-    except:
-        pass
 
 if __name__ == "__main__":
     main()

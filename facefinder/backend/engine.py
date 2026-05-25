@@ -4,7 +4,6 @@ import os
 import cv2
 import threading
 import warnings
-import sqlite3
 import logging
 import queue as _queue
 from contextlib import contextmanager
@@ -29,7 +28,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 logger = logging.getLogger(__name__)
 
 from backend.config import (
-    DB_PATH, DET_SIZE, USE_CUDA, SIMILARITY_THRESHOLD,
+    DET_SIZE, USE_CUDA, SIMILARITY_THRESHOLD,
     DET_ONNX, ANTELOPE_ONNX, ADAFACE_ONNX, VIT_ONNX, HSE_ONNX,
     STANDARD_TILING_ENABLED, TILING_SIZE, TILING_OVERLAP, TILING_MIN_WIDTH, NMS_IOU_THRESHOLD,
     WEIGHT_ANTELOPE, WEIGHT_ADAFACE, WEIGHT_VIT,
@@ -567,5 +566,13 @@ class FaceEngine:
         return self.index_manager.search_similar(query_face, gallery_id, SIMILARITY_THRESHOLD, max_results)
 
     def cluster_all_faces(self, gallery_id: int):
-        # ÚJ: Klaszterezés átirányítása
-        return self.index_manager.cluster_dbscan(gallery_id, DBSCAN_EPS, DBSCAN_MIN_SAMPLES)
+        import traceback
+        try:
+            res = self.index_manager.cluster_dbscan(gallery_id, DBSCAN_EPS, DBSCAN_MIN_SAMPLES)
+            with open('/var/www/nbence.hu/phantomtrack/facefinder/temp/cluster_debug.log', 'a') as f:
+                f.write(f"Cluster finished for {gallery_id}: {res} clusters found\n")
+            return res
+        except Exception as e:
+            with open('/var/www/nbence.hu/phantomtrack/facefinder/temp/cluster_debug.log', 'a') as f:
+                f.write(f"Cluster ERROR for {gallery_id}:\n{traceback.format_exc()}\n")
+            raise

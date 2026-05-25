@@ -39,10 +39,10 @@ require_once __DIR__ . '/../includes/header.php';
 <style>
     /* Helyi felülírások, hogy illeszkedjen az admin designba */
     .upload-area { background: rgba(0,0,0,0.2); border: 2px dashed var(--glass-border); }
-    .gallery-card { position: relative; overflow: hidden; transition: transform 0.2s; }
-    .gallery-card:hover { transform: translateY(-5px); }
-    .gallery-cover { height: 150px; background-size: cover; background-position: center; background-color: rgba(0,0,0,0.3); position: relative; }
-    .gallery-badges { position: absolute; top: 10px; right: 10px; display: flex; gap: 5px; }
+    .gallery-card { position: relative; transition: transform 0.2s; border-radius: 12px; }
+    .gallery-card:hover { transform: translateY(-5px); z-index: 10; }
+    .gallery-cover { height: 150px; background-size: cover; background-position: center; background-color: rgba(0,0,0,0.3); position: relative; border-radius: 12px 12px 0 0; overflow: hidden; }
+    .gallery-badges { position: absolute; top: 10px; right: 10px; display: flex; gap: 5px; z-index: 2; }
     .badge { padding: 4px 8px; border-radius: 4px; font-size: 0.75em; font-weight: bold; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
     .badge-public { background: var(--color-success); }
     .badge-private { background: var(--color-warning); color: #333; }
@@ -51,7 +51,7 @@ require_once __DIR__ . '/../includes/header.php';
     /* Dropdown CSS */
     .action-dropdown { position: relative; display: inline-block; }
     .action-dropdown-content {
-        display: none; position: absolute; right: 0; bottom: 110%;
+        display: none; position: absolute; right: 0; bottom: 100%;
         background-color: #2c2c2c; min-width: 200px;
         box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5); z-index: 100;
         border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
@@ -117,13 +117,11 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="action-dropdown">
                     <button class="btn btn-small btn-secondary"><i class="fas fa-ellipsis-v"></i></button>
                     <div class="action-dropdown-content">
-                        <a href="../facefinder/search.php?gallery_id=<?php echo $gallery['id']; ?>" style="color:#b873f9;"><i class="fas fa-search"></i> Arc Kereső</a>
-                        <a href="../facefinder/clusters.php?gallery_id=<?php echo $gallery['id']; ?>" style="color:#b873f9;"><i class="fas fa-users"></i> Klaszter Kezelő</a>
-                        <a href="../facefinder/images.php?gallery_id=<?php echo $gallery['id']; ?>" style="color:#b873f9;"><i class="fas fa-images"></i> Nyers Képek</a>
-                        <?php if (isAdmin()): ?>
-                        <a href="../facefinder/system.php?gallery_id=<?php echo $gallery['id']; ?>" style="color:#00d4ff;"><i class="fas fa-cogs"></i> Démon & Rendszer</a>
-                        <?php endif; ?>
+                        <a href="../facefinder/search.php?token=<?php echo $gallery['view_token']; ?>" style="color:#b873f9;"><i class="fas fa-search"></i> Arc Kereső</a>
+                        <a href="../facefinder/clusters.php?token=<?php echo $gallery['view_token']; ?>" style="color:#b873f9;"><i class="fas fa-users"></i> Klaszter Kezelő</a>
+                        <a href="../facefinder/images.php?token=<?php echo $gallery['view_token']; ?>" style="color:#b873f9;"><i class="fas fa-images"></i> Nyers Képek</a>
                         <button onclick="scanForAI(<?php echo $gallery['id']; ?>)" style="color:#48d1cc;"><i class="fas fa-robot"></i> Képek AI beolvasása</button>
+                        <button onclick="clusterGallery(<?php echo $gallery['id']; ?>)" style="color:#ffca28;"><i class="fas fa-project-diagram"></i> Képek klaszterezése</button>
                         <hr style="border-color: rgba(255,255,255,0.1); margin: 0;">
                         <a href="gallery_analytics.php?id=<?php echo $gallery['id']; ?>"><i class="fas fa-chart-pie"></i> Analitika</a>
                         <button onclick="editGallery(<?php echo $gallery['id']; ?>)"><i class="fas fa-edit"></i> Szerkesztés</button>
@@ -195,6 +193,13 @@ require_once __DIR__ . '/../includes/header.php';
                 <input type="password" id="gallery_password" name="password" placeholder="Add meg a belépési jelszót">
             </div>
 
+            <div class="form-group">
+                <label style="display:flex; align-items:center; cursor:pointer;">
+                    <input type="checkbox" name="facefinder_enabled" id="facefinder_enabled" style="margin-right:10px; width:auto;">
+                    Arckereső (Facefinder) Engedélyezése
+                </label>
+            </div>
+
             <button type="submit" class="btn btn-primary btn-block">Létrehozás</button>
         </form>
     </div>
@@ -260,6 +265,13 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="form-group" id="editPasswordGroup" style="display:none;">
                 <label for="edit_password">Új Jelszó (hagyd üresen, ha nem változik):</label>
                 <input type="password" id="edit_password" name="password" placeholder="***">
+            </div>
+
+            <div class="form-group">
+                <label style="display:flex; align-items:center; cursor:pointer;">
+                    <input type="checkbox" name="facefinder_enabled" id="edit_facefinder_enabled" style="margin-right:10px; width:auto;">
+                    Arckereső (Facefinder) Engedélyezése
+                </label>
             </div>
 
             <button type="submit" class="btn btn-primary btn-block">Mentés</button>
@@ -445,6 +457,21 @@ require_once __DIR__ . '/../includes/header.php';
         });
     }
 
+    function clusterGallery(galleryId) {
+        if(!confirm('Újracsoportosítod (klaszterezed) az arcokat ehhez a galériához? Ez felülírja a meglévő szortírozást.')) return;
+        
+        showDynamicMessage('Klaszterezés folyamatban... (ez eltarthat)','success');
+        fetch('<?php echo BASE_URL; ?>facefinder/api/maintenance.php?action=run_cluster&gallery_id=' + galleryId, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            const ok  = data.ok ?? data.success ?? false;
+            const msg = data.msg || data.message || (ok ? 'Klaszterezés kész!' : 'Hiba a klaszterezés során.');
+            showDynamicMessage(msg, ok ? 'success' : 'error');
+        }).catch(() => {
+            showDynamicMessage('Hálózati hiba a VisionAI API elérésekor.', 'error');
+        });
+    }
+
     function openShareModal(username, slug, token) {
         // URL-ek összeállítása
         const baseUrl = '<?php echo BASE_URL; ?>';
@@ -524,6 +551,9 @@ require_once __DIR__ . '/../includes/header.php';
                 
                 // Kategória UI frissítése
                 updateCustomSelect('editCategoryWrapper', 'edit_category_select', g.category_id || 'null');
+                
+                // Arckereső
+                document.getElementById('edit_facefinder_enabled').checked = (g.facefinder_enabled == 1);
                 
                 toggleEditPassword();
                 document.getElementById('editGalleryModal').style.display = 'block';

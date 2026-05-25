@@ -524,12 +524,17 @@ function ctxAction(action) {
 
   if (action === 'view') {
     document.getElementById('fmTitle').textContent = `Face ID: ${f.face_id}`;
-    const imgUrl = '../images/' + f.file_path;
+    // Használjuk a biztonságos data.php proxyt ha van token, egyébként fallback a közvetlen útvonalra
+    const imgUrl = (typeof DATA_BASE_URL !== 'undefined' && f.img_token)
+        ? DATA_BASE_URL + f.img_token + '&type=raw'
+        : '../uploads/' + f.file_path;
     const img = document.getElementById('fmImg');
     img.src = imgUrl;
     
     document.getElementById('fmDownloadSrc').href = imgUrl;
+    document.getElementById('fmDownloadSrc').download = f.file_path || 'image';
     document.getElementById('fmDownloadThumb').href = f.thumb || '#';
+    document.getElementById('fmDownloadThumb').download = 'face_' + f.face_id + '.webp';
     
     const draw = document.getElementById('fmBboxDraw');
     draw.style.display = 'none';

@@ -1,34 +1,53 @@
 <?php
 // facefinder/editor2.php
-session_start();
 require_once dirname(__DIR__) . '/config.php';
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../login.php");
     exit;
 }
 
-$gallery_id = isset($_GET['gallery_id']) ? (int)$_GET['gallery_id'] : 0;
-if ($gallery_id <= 0) die("Hiányzó gallery_id.");
-$pageTitle = "VisionAI Képek Galéria";
+$token = isset($_GET['token']) ? $_GET['token'] : '';
+if (empty($token)) die("Hiányzó token.");
+
+require_once dirname(__DIR__) . '/facefinder/api/db.php';
+$pdo = Database::getInstance()->getConnection();
+$stmt = $pdo->prepare("SELECT id, name, view_token FROM galleries WHERE view_token = ?");
+$stmt->execute([$token]);
+$gallery = $stmt->fetch();
+if (!$gallery) die("Érvénytelen token.");
+
+$gallery_id = $gallery['id'];
+$gallery_name = htmlspecialchars($gallery['name']);
+$view_token = $gallery['view_token'];
+
+$pageTitle = "VisionAI Képek - " . $gallery_name;
 require_once __DIR__ . '/../includes/header.php';
 ?>
 <link rel="stylesheet" href="static/css/images.css">
 <script>
-const GALLERY_ID = <?= $gallery_id ?>;
+const GALLERY_TOKEN = "<?= $view_token ?>";
 const originalFetch = window.fetch;
 window.fetch = function() {
     let [resource, config] = arguments;
     if (typeof resource === 'string' && resource.includes('api/')) {
-        let sep = resource.includes('?') ? '&' : '?';
-        resource += sep + 'gallery_id=' + GALLERY_ID;
+        if (!resource.includes('token=')) {
+            let sep = resource.includes('?') ? '&' : '?';
+            resource += sep + 'token=' + GALLERY_TOKEN;
+        }
     }
     return originalFetch(resource, config);
 };
 </script>
 <style>
-.control-bar { top: 0; }
-.app-container { min-height: calc(100vh - 100px); padding-bottom: 80px; }
+/* PhantomTrack layout override */
+.main-content { padding: 0 !important; }
+.control-bar { top: 0; position: sticky; }
+.app-container { min-height: calc(100vh - 52px); padding-bottom: 80px; }
 </style>
 
 <div class="app-container">
@@ -36,12 +55,19 @@ window.fetch = function() {
     <!-- STICKY CONTROL BAR -->
     <div class="control-bar">
         <div class="control-bar-left">
-            <div class="control-brand">🧠 <span>Képek Galéria</span></div>
+            <div class="control-brand">🧠 <span>Képek: <?= $gallery_name ?></span></div>
             <div class="control-stats" id="pageStats">Betöltés...</div>
         </div>
         <div class="control-bar-right">
-            <a href="index.php?gallery_id=<?= $gallery_id ?>" class="btn btn-secondary">Vissza a Dashboardra</a>
+            <input type="range" id="gridSizeSlider" min="150" max="400" value="200" oninput="changeGridSize(this.value)" style="width:120px;" title="Képméret">
         </div>
+    </div>
+    
+    <!-- ACTION BAR (Több-elemes törléshez) -->
+    <div id="actionBar" class="action-bar" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:rgba(20,20,30,0.9); border:1px solid #00e5ff; padding:10px 20px; border-radius:30px; z-index:1000; box-shadow:0 10px 30px rgba(0,0,0,0.5); backdrop-filter:blur(10px); align-items:center;">
+        <span style="color:#fff; font-weight:bold; margin-right:15px; font-size:1.1rem;">Kijelölve: <span id="selCount" style="color:#00e5ff;">0</span></span>
+        <button onclick="deleteSelected()" style="background:#ff3366; color:#fff; border:none; padding:8px 15px; border-radius:15px; cursor:pointer; font-weight:bold; margin-right:10px; transition:0.2s;"><i class="fas fa-trash"></i> Törlés</button>
+        <button onclick="deselectAll()" style="background:#333; color:#fff; border:1px solid #555; padding:8px 15px; border-radius:15px; cursor:pointer; transition:0.2s;">Mégsem</button>
     </div>
     
     <!-- GALLERY GRID -->
@@ -58,41 +84,34 @@ window.fetch = function() {
 
 </div>
 
-<!-- === FLOATING ACTION BAR === -->
-<div class="floating-action-bar" id="actionBar">
-    <div class="fab-stats">
-        <div class="fab-label">Kijelölve:</div>
-        <div class="fab-count" id="selCount">0</div>
-    </div>
-    <div class="fab-divider"></div>
-    <div class="fab-actions">
-        <button class="btn-fab-danger" onclick="deleteSelected()">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-            Törlés Véglegesen
-        </button>
-        <button class="btn-fab-cancel" onclick="deselectAll()">Mégsem</button>
-    </div>
-</div>
-
 <!-- === LIGHTBOX MODAL === -->
 <div id="lightbox" class="lightbox-overlay" onclick="if(event.target===this)closeLightbox()">
     <button class="lightbox-close" onclick="closeLightbox()" title="Bezárás (Esc)">✕</button>
     <button class="lightbox-nav prev" id="lbPrev" title="Előző (Bal nyíl)">‹</button>
     <div class="lightbox-content" id="lbContent">
         <div class="lightbox-img-wrapper" id="lbWrapper">
-            <img id="lbImg" class="lightbox-img" src="" draggable="false">
+            <img id="lbImg" class="lightbox-img" src="" draggable="false" style="display:none;">
+            <video id="lbVid" class="lightbox-img" controls style="display:none;"></video>
             <div id="lbBboxContainer" class="bbox-layer"></div>
         </div>
-        <!-- Manuális Tag gomb -->
-        <div style="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:200;">
-            <button id="btnTagMode" onclick="toggleTagMode()" title="Rajzolj kézzel arckeretet a képre"
-                style="background:#1a1a2e;color:#00e5ff;border:1px solid #00e5ff;padding:7px 16px;border-radius:8px;cursor:pointer;font-size:.85rem;transition:all .2s;">
-                🏷️ Tag Mód
+        
+        <!-- === ÚJ CONTROL PANEL (Lightbox Belsejében) === -->
+        <div class="lb-controls" id="lbControls">
+            <span id="lbSelInfo" style="display:none; color:#00e5ff; font-weight:bold; margin-right:15px; font-size:1.1rem;">Kijelölve: <span id="lbSelCount">0</span></span>
+            <button id="btnLbDelete" style="display:none; background:#ff3366; color:#fff; border:none; padding:8px 15px; border-radius:15px; cursor:pointer; font-weight:bold; margin-right:10px; transition:0.2s;" onclick="deleteSelected()"><i class="fas fa-trash"></i> Törlés</button>
+            <button id="btnLbDeselect" style="display:none; background:#333; color:#fff; border:1px solid #555; padding:8px 15px; border-radius:15px; cursor:pointer; margin-right:20px; transition:0.2s;" onclick="deselectAll()">Mégsem</button>
+
+            <button id="btnTagMode" class="btn-lb-control btn-lb-tag" onclick="toggleTagMode()" title="Rajzolj kézzel arckeretet a képre">
+                <i class="fas fa-crop-alt"></i> Új Arc (Tag)
             </button>
         </div>
     </div>
     <button class="lightbox-nav next" id="lbNext" title="Következő (Jobb nyíl)">›</button>
 </div>
 
+<script>
+    // Move lightbox to body to escape .main-content stacking context
+    document.body.appendChild(document.getElementById('lightbox'));
+</script>
 <script src="static/js/images.js"></script>
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

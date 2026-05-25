@@ -728,7 +728,9 @@ switch ($action) {
         
         $viewToken = bin2hex(random_bytes(16)); // Egyedi linkhez
         
-        $stmt = $db->prepare("INSERT INTO galleries (user_id, name, slug, description, visibility, password_hash, view_token, category_id) VALUES (:uid, :name, :slug, :desc, :vis, :pass, :token, :cat_id)");
+        $facefinderEnabled = isset($_POST['facefinder_enabled']) ? 1 : 0;
+        
+        $stmt = $db->prepare("INSERT INTO galleries (user_id, name, slug, description, visibility, password_hash, view_token, category_id, facefinder_enabled) VALUES (:uid, :name, :slug, :desc, :vis, :pass, :token, :cat_id, :facefinder_enabled)");
         if ($stmt->execute([
             ':uid' => $currentUserId,
             ':name' => $name,
@@ -737,7 +739,8 @@ switch ($action) {
             ':vis' => $visibility,
             ':pass' => $passwordHash,
             ':token' => $viewToken,
-            ':cat_id' => $categoryId
+            ':cat_id' => $categoryId,
+            ':facefinder_enabled' => $facefinderEnabled
         ])) {
             $response['success'] = true;
             $response['message'] = 'Galéria sikeresen létrehozva.';
@@ -811,7 +814,7 @@ switch ($action) {
     // --- GALÉRIA LEKÉRDEZÉS (Szerkesztéshez) ---
     case 'get_gallery_details':
         $gid = (int)$_POST['gallery_id'];
-        $stmt = $db->prepare("SELECT id, name, description, visibility, category_id FROM galleries WHERE id = :id AND user_id = :uid");
+        $stmt = $db->prepare("SELECT id, name, slug, description, visibility, category_id, facefinder_enabled FROM galleries WHERE id = :id AND user_id = :uid");
         $stmt->execute([':id' => $gid, ':uid' => $currentUserId]);
         $gal = $stmt->fetch(PDO::FETCH_ASSOC);
         
@@ -838,8 +841,8 @@ switch ($action) {
         $originalSlug = $slug;
         $counter = 1;
         while(true) {
-            $check = $db->prepare("SELECT id FROM galleries WHERE user_id = :uid AND slug = :slug");
-            $check->execute([':uid' => $currentUserId, ':slug' => $slug]);
+            $check = $db->prepare("SELECT id FROM galleries WHERE user_id = :uid AND slug = :slug AND id != :id");
+            $check->execute([':uid' => $currentUserId, ':slug' => $slug, ':id' => $gid]);
             if(!$check->fetch()) break; // Nincs ilyen, mehet
             $slug = $originalSlug . '-' . $counter;
             $counter++;
@@ -853,9 +856,10 @@ switch ($action) {
             $response['message'] = 'Nincs jogosultságod.';
             break;
         }
+        $facefinderEnabled = isset($_POST['facefinder_enabled']) ? 1 : 0;
         
-        $sql = "UPDATE galleries SET name = :name, slug = :slug, description = :desc, visibility = :vis, category_id = :cat_id";
-        $params = [':name' => $name, ':desc' => $desc, ':vis' => $vis, ':id' => $gid, ':slug' => $slug, ':cat_id' => $categoryId];
+        $sql = "UPDATE galleries SET name = :name, slug = :slug, description = :desc, visibility = :vis, category_id = :cat_id, facefinder_enabled = :facefinder_enabled";
+        $params = [':name' => $name, ':desc' => $desc, ':vis' => $vis, ':id' => $gid, ':slug' => $slug, ':cat_id' => $categoryId, ':facefinder_enabled' => $facefinderEnabled];
         
         // Jelszó kezelés
         if ($vis === 'password' && !empty($pass)) {

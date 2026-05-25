@@ -8,34 +8,55 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-$gallery_id = isset($_GET['gallery_id']) ? (int)$_GET['gallery_id'] : 0;
-if ($gallery_id <= 0) die("Hiányzó gallery_id.");
-$pageTitle = "VisionAI Klaszterek";
+$token = isset($_GET['token']) ? $_GET['token'] : '';
+if (empty($token)) die("Hiányzó token.");
+
+require_once dirname(__DIR__) . '/facefinder/api/db.php';
+$pdo = Database::getInstance()->getConnection();
+$stmt = $pdo->prepare("SELECT id, name, view_token FROM galleries WHERE view_token = ?");
+$stmt->execute([$token]);
+$gallery = $stmt->fetch();
+if (!$gallery) die("Érvénytelen token.");
+
+$gallery_id = $gallery['id'];
+$gallery_name = htmlspecialchars($gallery['name']);
+$view_token = $gallery['view_token'];
+
+$pageTitle = "VisionAI Klaszterek - " . $gallery_name;
 require_once __DIR__ . '/../includes/header.php';
 ?>
 <link rel="stylesheet" href="static/css/clusters.css">
 <script>
-const GALLERY_ID = <?= $gallery_id ?>;
+const GALLERY_TOKEN = "<?= $view_token ?>";
+const DATA_BASE_URL = "<?= BASE_URL ?>data.php?id=";
 const originalFetch = window.fetch;
 window.fetch = function() {
     let [resource, config] = arguments;
     if (typeof resource === 'string' && resource.includes('api/')) {
-        let sep = resource.includes('?') ? '&' : '?';
-        resource += sep + 'gallery_id=' + GALLERY_ID;
+        if (!resource.includes('token=')) {
+            let sep = resource.includes('?') ? '&' : '?';
+            resource += sep + 'token=' + GALLERY_TOKEN;
+        }
     }
     return originalFetch(resource, config);
 };
 </script>
 <style>
-.app-header { display: none; } /* Hide inner topbar since we have phantomtrack nav */
-.app-layout { height: calc(100vh - 100px); }
+/* A belső VisionAI app-header el van rejtve, a PhantomTrack nav veszi át a szerepét */
+.app-header { display: none !important; }
+/* A clusters layout a main-content alja az oldalnak, nincs padding */
+.main-content { padding: 0 !important; overflow: hidden; }
+.app-layout {
+    height: calc(100vh - 52px);
+    margin-top: 0;
+}
 </style>
 
 
 
 <!-- ════════════════════ MAIN APP ════════════════════════ -->
 <header class="app-header">
-  <div class="brand"><span>🧠</span> VisionAI Editor</div>
+  <div class="brand"><span>🧠</span> VisionAI Editor: <?= $gallery_name ?></div>
   <div class="header-sep"></div>
   <div class="header-stat" id="globalStat" title="Összes arc az adatbázisban">
     <span>Klaszterek:</span> <strong id="gStatClusters">–</strong>
@@ -46,7 +67,7 @@ window.fetch = function() {
     ↩ Visszavonás <span id="undoCount" style="opacity:.6">(0)</span>
   </button>
   <div class="header-sep"></div>
-  <a href="index.php?gallery_id=<?= $gallery_id ?>" class="btn btn-secondary">Vissza a Dashboardra</a>
+  <a href="../gallery_view.php?token=<?= $view_token ?>" class="btn btn-secondary">Vissza a Galériába</a>
 </header>
 
 <main class="app-layout" id="appLayout">
@@ -74,19 +95,15 @@ window.fetch = function() {
         <button class="btn" style="padding:4px 8px; font-size:0.75rem;" onclick="editCluster('left')" title="Klaszter nevének/jegyzetének szerkesztése">✏️ Szerkeszt</button>
         <button class="btn" style="padding:4px 8px; font-size:0.75rem;" onclick="refreshClusters()" title="Klaszterek újratöltése">🔄 Frissít</button>
       </div>
-      <!-- Sor 2: Kijelölés + törlés -->
+      <!-- Sor 2: Kijelölés + műveletek -->
       <div class="toolbar-row">
-        <button class="btn" onclick="selectAll('left')" title="Ctrl+A – Aktuális lap összes arca">☑ Mind</button>
-        <button class="btn" onclick="deselectAll('left')" title="Esc – Kijelölés törlése">☐ Semmi</button>
+        <button class="btn" onclick="selectAll('left')" title="Ctrl+A">☑ Mind</button>
+        <button class="btn" onclick="deselectAll('left')" title="Esc">☐ Semmi</button>
         <button class="btn" onclick="invertSelection('left')" title="Kijelölés megfordítása">⇄ Invertál</button>
         <div style="width:1px;background:var(--border);height:20px;flex-shrink:0"></div>
-        <button class="btn btn-warn" onclick="selectWorst('left', 10)" title="10 leggyengébb arc (score alapján)">🪄 Legrosszabb 10</button>
-        <input type="number" class="ctrl ctrl-number" id="leftWorstN" value="50" min="1" max="9999" title="Darabszám">
-        <button class="btn btn-warn" onclick="selectWorstN('left')">× legrosszabb</button>
-        <button class="btn btn-warn" onclick="selectBelowScore('left')" title="Score küszöb alatti arcok kijelölése">↓ Score alá</button>
+        <button class="btn btn-warn" onclick="selectWorst('left', 20)" title="A leggyengébb arcok kijelölése">🪄 Rosszak</button>
+        <button class="btn" onclick="hideSelected('left')" title="Kijelöltek elrejtése a nézetből">🙈 Bújtat</button>
         <div style="width:1px;background:var(--border);height:20px;flex-shrink:0"></div>
-        <button class="btn" onclick="hideSelected('left')" title="Kijelölt arcok elrejtése a nézetből">🙈 Bújtat</button>
-        <button class="btn" onclick="copySelectedIds('left')" title="Kijelölt ID-k másolása">📋 ID-k</button>
         <button class="btn btn-primary" onclick="quickMove('left')" title="Kijelöltek azonnali átküldése a jobb panelre">→ Átküld</button>
         <button class="btn btn-danger ml-auto" onclick="deleteSelected('left')" title="Delete – Kijelöltek végleges törlése">🗑 Törlés</button>
       </div>
@@ -146,19 +163,15 @@ window.fetch = function() {
         <button class="btn" style="padding:4px 8px; font-size:0.75rem;" onclick="editCluster('right')" title="Klaszter nevének/jegyzetének szerkesztése">✏️ Szerkeszt</button>
         <button class="btn" style="padding:4px 8px; font-size:0.75rem;" onclick="refreshClusters()" title="Klaszterek újratöltése">🔄 Frissít</button>
       </div>
-      <!-- Sor 2: Kijelölés + merge + törlés -->
+      <!-- Sor 2: Kijelölés + műveletek -->
       <div class="toolbar-row">
         <button class="btn" onclick="selectAll('right')" title="Ctrl+A">☑ Mind</button>
         <button class="btn" onclick="deselectAll('right')" title="Esc">☐ Semmi</button>
         <button class="btn" onclick="invertSelection('right')" title="Kijelölés megfordítása">⇄ Invertál</button>
         <div style="width:1px;background:var(--border);height:20px;flex-shrink:0"></div>
-        <button class="btn btn-warn" onclick="selectWorst('right', 10)">🪄 Legrosszabb 10</button>
-        <input type="number" class="ctrl ctrl-number" id="rightWorstN" value="50" min="1" max="9999">
-        <button class="btn btn-warn" onclick="selectWorstN('right')">× legrosszabb</button>
-        <button class="btn btn-warn" onclick="selectBelowScore('right')" title="Score küszöb alatti arcok kijelölése">↓ Score alá</button>
+        <button class="btn btn-warn" onclick="selectWorst('right', 20)">🪄 Rosszak</button>
+        <button class="btn" onclick="hideSelected('right')" title="Kijelöltek elrejtése a nézetből">🙈 Bújtat</button>
         <div style="width:1px;background:var(--border);height:20px;flex-shrink:0"></div>
-        <button class="btn" onclick="hideSelected('right')" title="Kijelölt arcok elrejtése a nézetből">🙈 Bújtat</button>
-        <button class="btn" onclick="copySelectedIds('right')" title="Kijelölt ID-k másolása">📋 ID-k</button>
         <button class="btn btn-primary" onclick="quickMove('right')" title="Kijelöltek azonnali átküldése a bal panelre">← Átküld</button>
         <button class="btn btn-success" onclick="mergeLeftToRight()" title="Bal panel ÖSSZES arca → Jobb klaszter">⚡ Merge L→R</button>
         <button class="btn btn-danger ml-auto" onclick="deleteSelected('right')" title="Delete">🗑 Törlés</button>
@@ -243,5 +256,13 @@ window.fetch = function() {
 <!-- ════════ TOAST ════════ -->
 <div id="toastContainer"></div>
 
+<script>
+  // Move modals to body to escape main-content stacking context
+  document.body.appendChild(document.getElementById('faceModal'));
+  document.body.appendChild(document.getElementById('confirmModal'));
+  document.body.appendChild(document.getElementById('contextMenu'));
+  document.body.appendChild(document.getElementById('hoverZoom'));
+  document.body.appendChild(document.getElementById('toastContainer'));
+</script>
 <script src="static/js/clusters.js"></script>
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

@@ -36,11 +36,22 @@ class DatabaseManager:
 
     @contextmanager
     def get_connection(self):
+        host = self.db_config['host']
+        # Ha a host 'localhost' vagy '127.0.0.1', Unix socketen csatlakozunk
+        # mert a MariaDB TCP-n (127.0.0.1) nem enged kapcsolatot
+        use_socket = None
+        if host in ('localhost', '127.0.0.1'):
+            for candidate in ('/run/mysqld/mysqld.sock', '/var/run/mysqld/mysqld.sock', '/tmp/mysql.sock'):
+                if os.path.exists(candidate):
+                    use_socket = candidate
+                    break
+
         conn = pymysql.connect(
-            host=self.db_config['host'],
+            host='localhost',
             user=self.db_config['user'],
             password=self.db_config['password'],
             database=self.db_config['database'],
+            unix_socket=use_socket,
             cursorclass=pymysql.cursors.DictCursor,
             client_flag=CLIENT.MULTI_STATEMENTS
         )

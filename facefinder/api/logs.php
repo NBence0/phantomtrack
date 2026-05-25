@@ -1,19 +1,25 @@
 <?php
 // facefinder/api/logs.php
-require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth_check.php';
 
-$action = $_GET['action'] ?? '';
-$logFile = TEMP_DIR . "fastapi.log";
+header('Content-Type: application/json');
+
+$logFile = dirname(__DIR__) . '/temp/fastapi.log';
+$action  = $_GET['action'] ?? '';
 
 if ($action === 'get_logs') {
-    if (!file_exists($logFile)) { 
-        echo json_encode(['ok' => true, 'logs' => "Nincs log fájl."]); 
-        exit; 
+    if (!file_exists($logFile)) {
+        echo json_encode(['ok' => true, 'logs' => 'Nincs log fájl.']);
+        exit;
     }
-    // Ezt shell_exec-el olvassuk a sebesség miatt (tail)
-    $lines = shell_exec("tail -n 80 " . escapeshellarg($logFile));
-    echo json_encode(['ok' => true, 'logs' => $lines]); 
+    $lines = shell_exec("tail -n 100 " . escapeshellarg($logFile));
+    echo json_encode(['ok' => true, 'logs' => $lines ?: '']);
+    exit;
+}
+
+if ($action === 'clear_logs') {
+    file_put_contents($logFile, '');
+    echo json_encode(['ok' => true, 'msg' => 'Log törölve.']);
     exit;
 }
 
